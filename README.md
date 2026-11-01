@@ -7,6 +7,7 @@
   <a href="https://github.com/Vikmat01/PolarisBrowser/releases"><img src="https://img.shields.io/github/downloads/Vikmat01/PolarisBrowser/total?style=for-the-badge&color=2ef2b0&label=загрузки" alt="Загрузки"></a>
   <img src="https://img.shields.io/badge/Android-10%2B-3fc8ff?style=for-the-badge&logo=android&logoColor=white" alt="Android 10+">
   <img src="https://img.shields.io/badge/Kotlin-100%25-9b6bff?style=for-the-badge&logo=kotlin&logoColor=white" alt="Kotlin">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/лицензия-GPL--3.0-f5b400?style=for-the-badge" alt="GPL-3.0"></a>
 </p>
 
 <p align="center">
@@ -64,6 +65,8 @@ keyPassword=…
 
 Секреты репозитория для подписи: `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`.
 
-## 📄 Благодарности
+## 📄 Лицензия
+
+Polaris Browser распространяется по лицензии [GNU GPL v3](LICENSE). Код можно изучать, менять и распространять, но изменённые версии тоже должны оставаться открытыми под GPL-3.0.
 
 Режим чтения использует [Readability.js](https://github.com/mozilla/readability) от Mozilla (Apache-2.0).
