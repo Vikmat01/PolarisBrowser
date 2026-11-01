@@ -388,7 +388,9 @@ class GlassSheet(val act: Activity, val fullHeight: Boolean = false) : Dialog(ac
         val top = (h - bh) * (1f - f)
         card.background?.setBounds(0, top.toInt(), w, h)
         card.invalidateOutline(); card.invalidate()
-        val a = ((f - 0.3f) / 0.55f).coerceIn(0f, 1f)
+        // cross-fade with the capsule at the small end so the hand-off is seamless
+        card.alpha = (f / 0.3f).coerceIn(0f, 1f)
+        val a = ((f - 0.4f) / 0.5f).coerceIn(0f, 1f)
         for (i in 0 until card.childCount) card.getChildAt(i).apply { alpha = a; translationY = (1f - a) * act.dp(18) }
     }
 
@@ -465,7 +467,6 @@ class GlassSheet(val act: Activity, val fullHeight: Boolean = false) : Dialog(ac
             baseTy = (barRect!!.bottom - (loc[1] + card.height)).toFloat()
             card.translationY = baseTy
             morphStep(0f)
-            card.alpha = 1f
             bar?.fadeContent(false)
             morph = ValueAnimator.ofFloat(0f, 1f).apply {
                 duration = 520
@@ -489,11 +490,15 @@ class GlassSheet(val act: Activity, val fullHeight: Boolean = false) : Dialog(ac
             morph?.cancel()
             val from = card.background?.bounds?.let { if (card.height > 0) 1f - (it.top.toFloat() / (card.height - barRect!!.height()).coerceAtLeast(1)) else 1f } ?: 1f
             card.animate().translationY(baseTy).setDuration(200).start()
-            card.postDelayed({ bar?.fadeContent(true) }, 150)
+            var barBack = false
             morph = ValueAnimator.ofFloat(from.coerceIn(0f, 1.1f), 0f).apply {
-                duration = 300
-                interpolator = PathInterpolator(0.4f, 0f, 0.2f, 1f)
-                addUpdateListener { morphStep(it.animatedValue as Float) }
+                duration = 340
+                interpolator = PathInterpolator(0.3f, 0f, 0.2f, 1f)
+                addUpdateListener {
+                    val v = it.animatedValue as Float
+                    if (!barBack && v < 0.4f) { barBack = true; bar?.fadeContent(true) }
+                    morphStep(v)
+                }
                 doOnEnd { try { super.dismiss() } catch (_: Exception) {} }
                 start()
             }
