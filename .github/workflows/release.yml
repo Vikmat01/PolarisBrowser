@@ -1,9 +1,11 @@
 name: Release
 
-# Push a tag like v2.3 → build a signed APK → publish a GitHub Release.
-# The app's built-in updater picks the release up automatically.
+# Add release-notes/vX.Y.md (and bump versionName) on main → build a signed APK → publish release vX.Y.
+# A tag push v* or a manual run works too. The app's built-in updater picks the release up automatically.
 on:
   push:
+    branches: [main]
+    paths: ['release-notes/**']
     tags: ['v*']
   workflow_dispatch:
 

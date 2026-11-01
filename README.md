@@ -35,7 +35,7 @@ keyPassword=…
 ## Выпуск новой версии
 
 1. Поднять `versionCode` и `versionName` в `app/build.gradle.kts`, описать изменения в `release-notes/vX.Y.md`.
-2. Отправить метку: `git tag vX.Y && git push origin vX.Y`.
+2. Закоммитить это в `main` (или отправить метку `vX.Y`).
 3. GitHub Actions соберёт подписанный APK и опубликует релиз, браузеры сами предложат обновиться.
 
 Нужны секреты репозитория (Settings → Secrets and variables → Actions): `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`.
