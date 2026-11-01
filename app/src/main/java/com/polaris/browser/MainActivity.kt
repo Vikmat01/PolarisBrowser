@@ -462,7 +462,7 @@ class MainActivity : Activity() {
         }
         (backBtn.drawable as? IconDrawable)?.tint(if (t.web?.canGoBack() == true || t.parentId != -1L) fg else (fg and 0x55FFFFFF))
         if (t.isHome) {
-            addrText.swapText("Поиск или адрес")
+            addrText.swapText("Поиск")
             addrText.setTextColor(if (t.incognito) 0xB3FFFFFF.toInt() else p.dim)
             addrIcon.setImageDrawable(icon(this, if (t.incognito) Ic.INCOGNITO else Ic.SEARCH, if (t.incognito) Color.WHITE else p.accent))
         } else {
@@ -1354,7 +1354,7 @@ class MainActivity : Activity() {
         val input = EditText(this).apply {
             setText(prefill ?: if (t.isHome) "" else t.url)
             setTextColor(pp.text); setHintTextColor(pp.dim)
-            hint = "Поиск или адрес"
+            hint = "Поиск"
             background = null
             setSingleLine()
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
