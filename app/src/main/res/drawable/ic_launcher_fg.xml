@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- North star: long vertical rays, short horizontal -->
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M54,26 L57.2,50.8 L72,54 L57.2,57.2 L54,82 L50.8,57.2 L36,54 L50.8,50.8 Z" />
+    <path android:fillColor="#B3FFFFFF"
+        android:pathData="M54,44 L60,48 L64,54 L60,60 L54,64 L48,60 L44,54 L48,48 Z" />
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M54,49a5,5 0,1 0,0.01 0z" />
+</vector>
