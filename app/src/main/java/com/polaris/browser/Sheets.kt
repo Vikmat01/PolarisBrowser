@@ -18,7 +18,7 @@ import android.widget.*
 
 fun MainActivity.showMenu() {
     val t = cur ?: return
-    val s = GlassSheet(this)
+    val s = GlassSheet(this).fromBar(glassBar)
     val p = Palette.cur
 
     // quick action row: round liquid-glass buttons, captions underneath

@@ -1,6 +1,7 @@
 package com.polaris.browser
 
 import android.animation.ValueAnimator
+import androidx.core.animation.doOnEnd
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.Dialog
@@ -367,6 +368,29 @@ class GlassSheet(val act: Activity, val fullHeight: Boolean = false) : Dialog(ac
     private val card: LiquidLinear
     private var closing = false
     private var rows = 0
+    private var bar: GlassBar? = null
+    private var barRect: Rect? = null
+    private var baseTy = 0f
+    private var morph: ValueAnimator? = null
+
+    /** Grow the sheet out of the address-bar capsule instead of sliding up from the screen edge. */
+    fun fromBar(b: GlassBar): GlassSheet {
+        val r = b.capsuleRect() ?: return this
+        bar = b; barRect = r
+        val sw = act.resources.displayMetrics.widthPixels
+        (card.layoutParams as FrameLayout.LayoutParams).apply { leftMargin = r.left; rightMargin = sw - r.right }
+        return this
+    }
+
+    private fun morphStep(f: Float) {
+        val w = card.width; val h = card.height
+        val bh = barRect?.height() ?: h
+        val top = (h - bh) * (1f - f)
+        card.background?.setBounds(0, top.toInt(), w, h)
+        card.invalidateOutline(); card.invalidate()
+        val a = ((f - 0.3f) / 0.55f).coerceIn(0f, 1f)
+        for (i in 0 until card.childCount) card.getChildAt(i).apply { alpha = a; translationY = (1f - a) * act.dp(18) }
+    }
 
     private val snap: Backdrop? = if (Lens.supported) Backdrop(act, 0.5f, makeSoft = true) else null
 
@@ -436,7 +460,20 @@ class GlassSheet(val act: Activity, val fullHeight: Boolean = false) : Dialog(ac
             b.capture(Rect(0, 0, dv.width, dv.height))
         }
         card.alpha = 0f
-        card.post {
+        if (barRect != null) card.post {
+            val loc = IntArray(2); card.getLocationOnScreen(loc)
+            baseTy = (barRect!!.bottom - (loc[1] + card.height)).toFloat()
+            card.translationY = baseTy
+            morphStep(0f)
+            card.alpha = 1f
+            bar?.fadeContent(false)
+            morph = ValueAnimator.ofFloat(0f, 1f).apply {
+                duration = 520
+                interpolator = OvershootInterpolator(0.9f)
+                addUpdateListener { morphStep(it.animatedValue as Float) }
+                start()
+            }
+        } else card.post {
             card.translationY = card.height * 0.6f + act.dp(40)
             card.scaleX = 0.96f; card.scaleY = 0.96f
             card.alpha = 1f
@@ -448,6 +485,27 @@ class GlassSheet(val act: Activity, val fullHeight: Boolean = false) : Dialog(ac
     override fun dismiss() {
         if (closing) return
         closing = true
+        if (barRect != null) {
+            morph?.cancel()
+            val from = card.background?.bounds?.let { if (card.height > 0) 1f - (it.top.toFloat() / (card.height - barRect!!.height()).coerceAtLeast(1)) else 1f } ?: 1f
+            card.animate().translationY(baseTy).setDuration(200).start()
+            card.postDelayed({ bar?.fadeContent(true) }, 150)
+            morph = ValueAnimator.ofFloat(from.coerceIn(0f, 1.1f), 0f).apply {
+                duration = 300
+                interpolator = PathInterpolator(0.4f, 0f, 0.2f, 1f)
+                addUpdateListener { morphStep(it.animatedValue as Float) }
+                doOnEnd { try { super.dismiss() } catch (_: Exception) {} }
+                start()
+            }
+            window?.let { w ->
+                ValueAnimator.ofFloat(w.attributes.dimAmount, 0f).apply {
+                    duration = 300
+                    addUpdateListener { w.setDimAmount(it.animatedValue as Float) }
+                    start()
+                }
+            }
+            return
+        }
         card.animate().translationY(card.height.toFloat() + act.dp(60)).setDuration(240)
             .setInterpolator(PathInterpolator(0.4f, 0f, 1f, 1f))
             .withEndAction { try { super.dismiss() } catch (_: Exception) {} }.start()
@@ -466,10 +524,10 @@ class GlassSheet(val act: Activity, val fullHeight: Boolean = false) : Dialog(ac
         v.setOnTouchListener { _, e ->
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> { startY = e.rawY; true }
-                MotionEvent.ACTION_MOVE -> { card.translationY = (e.rawY - startY).coerceAtLeast(0f); true }
+                MotionEvent.ACTION_MOVE -> { card.translationY = baseTy + (e.rawY - startY).coerceAtLeast(0f); true }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    if (card.translationY > act.dp(110)) dismiss()
-                    else card.animate().translationY(0f).setDuration(300).setInterpolator(OvershootInterpolator(1.2f)).start()
+                    if (card.translationY - baseTy > act.dp(110)) dismiss()
+                    else card.animate().translationY(baseTy).setDuration(300).setInterpolator(OvershootInterpolator(1.2f)).start()
                     true
                 }
                 else -> false
@@ -605,6 +663,19 @@ class GlassBar(val act: Activity) : Dialog(act, android.R.style.Theme_Translucen
     }
 
     val isHiddenNow get() = hidden
+
+    /** Screen rect of the capsule, or null while the bar is hidden / not laid out. */
+    fun capsuleRect(): Rect? {
+        if (hidden || !isShowing || content.width == 0) return null
+        val l = IntArray(2); content.getLocationOnScreen(l)
+        return Rect(l[0], l[1], l[0] + content.width, l[1] + content.height)
+    }
+
+    /** Fade the capsule out while a sheet grows from it, and back in when it shrinks back. */
+    fun fadeContent(show: Boolean) {
+        content.animate().cancel()
+        content.animate().alpha(if (show) 1f else 0f).setDuration(if (show) 220 else 120).start()
+    }
 
     /** Matte "frosted" lens for the address field inside the capsule (variant A). */
     fun fieldLens(host: View, p: Palette, incognito: Boolean, radiusDp: Float = 25f): Drawable? {
