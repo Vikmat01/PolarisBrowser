@@ -79,7 +79,7 @@ class SettingsActivity : Activity() {
                 choose("Тема", themes, prefs.theme) { prefs.theme = it; render() }
             }
             toggle("Тёмные сайты", "Затемнять сайты без своей тёмной темы", prefs.forceDark) { prefs.forceDark = it }
-            toggle("Прятать панель при прокрутке", null, prefs.autoHideBar) { prefs.autoHideBar = it }
+            toggle("Сжимать панель при прокрутке", null, prefs.autoHideBar) { prefs.autoHideBar = it }
             val zooms = listOf(80, 90, 100, 110, 120, 135, 150).map { it.toString() to "$it%" }
             item("Масштаб текста", "${prefs.textZoom}%") {
                 choose("Масштаб текста", zooms, prefs.textZoom.toString()) { prefs.textZoom = it.toInt(); render() }

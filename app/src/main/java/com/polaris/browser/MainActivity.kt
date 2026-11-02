@@ -73,7 +73,8 @@ class MainActivity : Activity() {
     private var statusTop = 0
     private var navBottom = 0
     private var imeBottom = 0
-    private var barHidden = false
+    private var barMode = 0 // 0 full, 1 mini capsule, 2 hidden by swipe
+    private var barHandle: View? = null
     private var barIncognito: Boolean? = null
     internal lateinit var glassBar: GlassBar
     internal val scripts by lazy { ScriptStore(this) }
@@ -323,6 +324,8 @@ class MainActivity : Activity() {
         root.addView(barWrap, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM))
 
         glassBar = GlassBar(this)
+        glassBar.onSwipeDown = { setBarMode(2) }
+        glassBar.onMiniTap = { setBarMode(0) }
         buildBar()
 
         root.setOnApplyWindowInsetsListener { _, ins ->
@@ -331,7 +334,7 @@ class MainActivity : Activity() {
             navBottom = wi.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
             imeBottom = wi.getInsets(WindowInsetsCompat.Type.ime()).bottom
             layoutInsets()
-            if (::glassBar.isInitialized) glassBar.setHidden(barHidden || imeBottom > 0)
+            if (::glassBar.isInitialized) { glassBar.setHidden(barMode == 2 || imeBottom > 0); updateHandle() }
             ins
         }
         setContentView(root)
@@ -443,6 +446,7 @@ class MainActivity : Activity() {
 
     internal fun updateChrome() {
         val t = cur ?: return
+        if (barMode == 1) { if (t.isHome) setBarMode(0) else refreshMiniText() }
         if (Incog.isSecure(window) != t.incognito) Incog.secure(window, t.incognito)
         val n = tabs.count { it.incognito == t.incognito }
         tabsCount.text = if (n > 99) ":)" else n.toString()
@@ -503,11 +507,63 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun showBar(show: Boolean) {
-        if (!prefs.autoHideBar && !show) return
-        if (barHidden == !show) return
-        barHidden = !show
-        glassBar.setHidden(!show || imeBottom > 0)
+    private fun showBar(show: Boolean, force: Boolean = false) {
+        if (show) {
+            if (barMode == 2 && !force) return
+            setBarMode(0)
+        } else {
+            if (!prefs.autoHideBar) return
+            if (barMode == 0 && cur?.isHome != true) setBarMode(1)
+        }
+    }
+
+    internal fun setBarMode(m: Int) {
+        if (m == barMode) return
+        barMode = m
+        when (m) {
+            0 -> { glassBar.setMini(false); glassBar.setHidden(imeBottom > 0) }
+            1 -> { refreshMiniText(); glassBar.setHidden(imeBottom > 0); glassBar.setMini(true) }
+            2 -> glassBar.setHidden(true)
+        }
+        updateHandle()
+    }
+
+    private fun refreshMiniText() {
+        val t = cur ?: return
+        val h = t.host.removePrefix("www.").ifEmpty { "Поиск" }
+        glassBar.setMiniText((if (t.incognito) "◐ " else "") + h, if (t.incognito) Color.WHITE else p.text)
+    }
+
+    /** Small pill at the bottom edge while the bar is swiped away: swipe up or tap to bring it back. */
+    @android.annotation.SuppressLint("ClickableViewAccessibility")
+    private fun updateHandle() {
+        val want = barMode == 2 && imeBottom == 0 && videoFrame == null
+        if (want && barHandle == null) {
+            val h = FrameLayout(this)
+            h.addView(View(this).apply {
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(3).toFloat(); setColor(0x8C6E6E78.toInt()); setStroke(1, 0x66FFFFFF)
+                }
+            }, FrameLayout.LayoutParams(dp(72), dp(6), Gravity.CENTER))
+            var y0 = 0f
+            h.setOnTouchListener { _, e ->
+                when (e.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> { y0 = e.rawY; true }
+                    MotionEvent.ACTION_UP -> {
+                        if (y0 - e.rawY > dp(12) || kotlin.math.abs(y0 - e.rawY) < dp(8)) setBarMode(0)
+                        true
+                    }
+                    else -> true
+                }
+            }
+            h.alpha = 0f
+            root.addView(h, FrameLayout.LayoutParams(dp(150), dp(30), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = navBottom })
+            h.animate().alpha(1f).setStartDelay(180).setDuration(220).start()
+            barHandle = h
+        } else if (!want && barHandle != null) {
+            val h = barHandle!!; barHandle = null
+            h.animate().alpha(0f).setStartDelay(0).setDuration(150).withEndAction { root.removeView(h) }.start()
+        } else barHandle?.let { (it.layoutParams as FrameLayout.LayoutParams).bottomMargin = navBottom; it.requestLayout() }
     }
 
     // ───────────────────────── tabs ─────────────────────────
@@ -547,7 +603,7 @@ class MainActivity : Activity() {
             t.pendingUrl = null
             if (u.isNullOrEmpty()) loadHome(t) else load(t, u)
         }
-        showBar(true)
+        showBar(true, force = true)
         updateChrome()
         scheduleSample(320)
         glassBar.kick(900)
@@ -1488,8 +1544,10 @@ class MainActivity : Activity() {
         blurPage(false)
         panel.animate().alpha(0f).setDuration(160).withEndAction { root.removeView(panel) }.start()
         try { glassBar.show() } catch (_: Exception) {}
-        barHidden = false
+        barMode = 0
+        glassBar.setMini(false)
         glassBar.setHidden(false)
+        updateHandle()
     }
 
     // ───────────────────────── find in page ─────────────────────────
@@ -1523,7 +1581,7 @@ class MainActivity : Activity() {
         input.setOnEditorActionListener { _, _, _ -> w.findNext(true); true }
         barWrap.addView(fb, FrameLayout.LayoutParams(MATCH, WRAP).apply { setMargins(dp(10), dp(6), dp(10), dp(8)) })
         findBar = fb
-        showBar(true)
+        showBar(true, force = true)
         input.requestFocus()
         main.postDelayed({ getSystemService(InputMethodManager::class.java).showSoftInput(input, 0) }, 80)
     }
