@@ -43,3 +43,6 @@ class Tab(
         fun nextId() = ++seq
     }
 }
+
+/** Only real web pages: keeps javascript:, file: and data: out of anything that didn't come from the user's own address bar. */
+internal fun isWebUrl(url: String) = url.startsWith("http://", true) || url.startsWith("https://", true)

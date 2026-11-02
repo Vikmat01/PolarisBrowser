@@ -13,8 +13,17 @@ import android.widget.*
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
+import java.net.InetAddress
 import java.net.URL
 import kotlin.concurrent.thread
+
+/** Loopback, LAN, link-local and carrier-NAT addresses: userscripts have no business talking to the user's own network. */
+internal fun isPrivateAddress(a: InetAddress): Boolean {
+    val b = a.address
+    return a.isLoopbackAddress || a.isAnyLocalAddress || a.isLinkLocalAddress || a.isSiteLocalAddress || a.isMulticastAddress ||
+        (b.size == 16 && (b[0].toInt() and 0xFE) == 0xFC) ||
+        (b.size == 4 && (b[0].toInt() and 0xFF) == 100 && (b[1].toInt() and 0xC0) == 64)
+}
 
 /** GM_* bridge. Every call carries the per-run token, which only the injected bootstrap knows. */
 class GMBridge(private val act: MainActivity, private val web: WebView, private val tab: Tab) {
@@ -49,15 +58,31 @@ class GMBridge(private val act: MainActivity, private val web: WebView, private 
             try {
                 val o = JSONObject(req)
                 val u = o.getString("url")
-                if (!(u.startsWith("http://") || u.startsWith("https://"))) throw IllegalArgumentException("bad url")
-                val c = URL(u).openConnection() as HttpURLConnection
-                c.requestMethod = o.optString("method", "GET").uppercase()
-                val to = o.optInt("timeout", 0); c.connectTimeout = if (to > 0) to else 20000; c.readTimeout = if (to > 0) to else 30000
-                c.instanceFollowRedirects = true
-                o.optJSONObject("headers")?.let { h -> h.keys().forEach { k -> c.setRequestProperty(k, h.getString(k)) } }
-                if (c.getRequestProperty("User-Agent") == null) c.setRequestProperty("User-Agent", web.settings.userAgentString)
-                if (!o.isNull("data")) { c.doOutput = true; c.outputStream.use { it.write(o.getString("data").toByteArray()) } }
-                val code = c.responseCode
+                var url = URL(u)
+                var method = o.optString("method", "GET").uppercase()
+                var data = if (o.isNull("data")) null else o.getString("data")
+                var hops = 0
+                var c: HttpURLConnection
+                var code: Int
+                while (true) {
+                    // checked again on every redirect, so a public site can't bounce the request into the home network
+                    if ((url.protocol != "http" && url.protocol != "https") || InetAddress.getAllByName(url.host).any { isPrivateAddress(it) })
+                        throw IllegalArgumentException("blocked address")
+                    c = url.openConnection() as HttpURLConnection
+                    c.requestMethod = method
+                    val to = o.optInt("timeout", 0); c.connectTimeout = if (to > 0) to else 20000; c.readTimeout = if (to > 0) to else 30000
+                    c.instanceFollowRedirects = false
+                    o.optJSONObject("headers")?.let { h -> h.keys().forEach { k -> c.setRequestProperty(k, h.getString(k)) } }
+                    if (c.getRequestProperty("User-Agent") == null) c.setRequestProperty("User-Agent", web.settings.userAgentString)
+                    data?.let { d -> c.doOutput = true; c.outputStream.use { it.write(d.toByteArray()) } }
+                    code = c.responseCode
+                    val next = c.getHeaderField("Location")
+                    if (code !in setOf(301, 302, 303, 307, 308) || next == null) break
+                    if (++hops > 5) throw IllegalArgumentException("too many redirects")
+                    c.disconnect()
+                    url = URL(url, next)
+                    if (code == 303 || (code != 307 && code != 308 && method == "POST")) { method = "GET"; data = null }
+                }
                 val body = (if (code >= 400) c.errorStream else c.inputStream)?.use { it.readBytes().toString(Charsets.UTF_8) } ?: ""
                 val headers = c.headerFields.filterKeys { it != null }.entries.joinToString("\r\n") { "${it.key}: ${it.value.joinToString(", ")}" }
                 res.put("status", code).put("statusText", c.responseMessage ?: "").put("responseText", body)
@@ -65,7 +90,8 @@ class GMBridge(private val act: MainActivity, private val web: WebView, private 
             } catch (e: Exception) {
                 res.put("error", e.message ?: "error").put("status", 0).put("readyState", 4)
             }
-            act.main.post { web.evaluateJavascript("window.__pzXhrDone&&__pzXhrDone($id,$res)", null) }
+            val key = JSONObject.quote(act.scriptCallbackKey)
+            act.main.post { web.evaluateJavascript("window.__pzXhrDone&&__pzXhrDone($key,$id,$res)", null) }
         }
     }
 }
@@ -308,7 +334,7 @@ fun MainActivity.showScriptCommands() {
     t.cmds.forEach { name ->
         sheet.row(Ic.PLAY, name) {
             sheet.dismiss()
-            t.web?.evaluateJavascript("(function(){var f=window.__pzCmds&&window.__pzCmds[${JSONObject.quote(name)}];if(f)f()})()", null)
+            t.web?.evaluateJavascript("window.__pzCmd&&__pzCmd(${JSONObject.quote(scriptCallbackKey)},${JSONObject.quote(name)})", null)
         }
     }
     sheet.show()

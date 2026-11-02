@@ -78,6 +78,7 @@ class MainActivity : Activity() {
     internal lateinit var glassBar: GlassBar
     internal val scripts by lazy { ScriptStore(this) }
     internal val scriptToken: String = java.util.UUID.randomUUID().toString()
+    internal val scriptCallbackKey: String = java.util.UUID.randomUUID().toString()
     private val scriptHandlers = java.util.WeakHashMap<WebView, androidx.webkit.ScriptHandler>()
     private var scriptBundle: String? = null
     private lateinit var addrField: LinearLayout
@@ -208,10 +209,11 @@ class MainActivity : Activity() {
     private fun handleIntent(i: Intent?, fresh: Boolean) {
         i ?: return
         val target: String = when (i.action) {
-            Intent.ACTION_VIEW -> i.dataString
-            Intent.ACTION_WEB_SEARCH -> i.getStringExtra(SearchManager.QUERY)?.let { resolve(it) }
+            // other apps may only hand us web pages: never javascript:, file: or data:
+            Intent.ACTION_VIEW -> i.dataString?.takeIf { isWebUrl(it) }
+            Intent.ACTION_WEB_SEARCH -> i.getStringExtra(SearchManager.QUERY)?.let { resolveFromApp(it) }
             Intent.ACTION_SEND -> i.getStringExtra(Intent.EXTRA_TEXT)?.let { txt ->
-                Regex("https?://\\S+").find(txt)?.value ?: resolve(txt)
+                Regex("https?://\\S+").find(txt)?.value ?: resolveFromApp(txt)
             }
             else -> null
         } ?: return
@@ -219,6 +221,9 @@ class MainActivity : Activity() {
         if (c != null && c.isHome && !c.incognito && (c.web?.canGoBack() != true)) load(c, target)
         else newTab(target, false, parent = -2)
     }
+
+    private fun resolveFromApp(text: String): String =
+        resolve(text).let { if (it.isEmpty() || isWebUrl(it)) it else prefs.searchUrl(text) }
 
     // ───────────────────────── theme ─────────────────────────
 
@@ -767,7 +772,7 @@ class MainActivity : Activity() {
         return w
     }
 
-    private fun bundle(): String = scriptBundle ?: UserScripts.bundle(scripts.all(), scriptToken).also { scriptBundle = it }
+    private fun bundle(): String = scriptBundle ?: UserScripts.bundle(scripts.all(), scriptToken, scriptCallbackKey).also { scriptBundle = it }
 
     private fun installScripts(w: WebView) {
         scriptHandlers.remove(w)?.let { try { it.remove() } catch (_: Exception) {} }
@@ -807,6 +812,8 @@ class MainActivity : Activity() {
             val url = req.url.toString()
             val scheme = req.url.scheme?.lowercase() ?: return false
             if (scheme == "polaris") {
+                // internal links of our own home page; websites and their frames must not reach them
+                if (!req.isForMainFrame || view.url?.startsWith(Tab.HOME) != true) return true
                 if (req.url.host == "edit") { main.post { openEdit() }; return true }
                 val q = req.url.getQueryParameter("q") ?: ""
                 if (q.isNotBlank()) main.post { load(t, resolve(q)) }
@@ -824,7 +831,9 @@ class MainActivity : Activity() {
                 return false
             }
             if (scheme == "about" || scheme == "data" || scheme == "blob" || scheme == "javascript" || scheme == "file") return false
-            openExternal(url, req.hasGesture())
+            // background tabs and frames nobody tapped can't launch apps or redirect the page
+            if (t !== cur || (!req.isForMainFrame && !req.hasGesture())) return true
+            openExternal(t, url, req.hasGesture())
             return true
         }
 
@@ -882,6 +891,7 @@ class MainActivity : Activity() {
 
         override fun shouldInterceptRequest(view: WebView, req: WebResourceRequest): WebResourceResponse? {
             if (req.url.host == "polaris.local") {
+                if (!t.url.startsWith(Tab.HOME)) return AdBlocker.empty() // the wallpaper is for the home page only
                 val f = java.io.File(filesDir, "home_bg.jpg")
                 return if (f.exists()) WebResourceResponse("image/jpeg", null, java.io.FileInputStream(f)).apply {
                     responseHeaders = mapOf("Access-Control-Allow-Origin" to "*", "Cache-Control" to "no-store")
@@ -1052,16 +1062,16 @@ class MainActivity : Activity() {
 
     // ───────────────────────── external links ─────────────────────────
 
-    private fun openExternal(url: String, gesture: Boolean) {
+    private fun openExternal(t: Tab, url: String, gesture: Boolean) {
         val intent = try {
             if (url.startsWith("intent:")) Intent.parseUri(url, Intent.URI_INTENT_SCHEME).apply {
                 addCategory(Intent.CATEGORY_BROWSABLE); component = null; selector = null
             } else Intent(Intent.ACTION_VIEW, Uri.parse(url))
         } catch (_: Exception) { null } ?: return
-        val fallback = intent.getStringExtra("browser_fallback_url")
+        val fallback = intent.getStringExtra("browser_fallback_url")?.takeIf { isWebUrl(it) }
         val handler = packageManager.resolveActivity(intent, 0)
         if (handler == null) {
-            if (fallback != null) cur?.let { load(it, fallback) }
+            if (fallback != null) load(t, fallback)
             else if (intent.`package` != null) {
                 try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=${intent.`package`}"))) } catch (_: Exception) {}
             } else toast(this, "Нет приложения, чтобы открыть ссылку")

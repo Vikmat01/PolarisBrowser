@@ -181,11 +181,11 @@ object UserScripts {
     private fun q(s: String) = JSONObject.quote(s)
 
     /** One script per page load that decides by itself which userscripts apply to location.href. */
-    fun bundle(list: List<UScript>, token: String): String {
+    fun bundle(list: List<UScript>, token: String, callbackKey: String): String {
         val on = list.filter { it.enabled }
         if (on.isEmpty()) return ""
         val sb = StringBuilder()
-        sb.append("(function(){if(window.__pzUS)return;window.__pzUS=1;var T=").append(q(token)).append(",B=window.PolarisGM,H=location.href;")
+        sb.append("(function(){if(window.__pzUS)return;window.__pzUS=1;var T=").append(q(token)).append(",K=").append(q(callbackKey)).append(",H=location.href;")
         sb.append(GM_LIB)
         sb.append("var S=[")
         for (s in on) {
@@ -208,30 +208,34 @@ object UserScripts {
     }
 
     private const val GM_LIB = """
+var _pA=Reflect.apply,_pS=JSON.stringify,_pP=JSON.parse,_pD=Object.defineProperty,_pR=window.PolarisGM;
+function _pW(n){var m=_pR[n];return function(){return _pA(m,_pR,arguments)}}
+var B=_pR?{get:_pW('get'),set:_pW('set'),del:_pW('del'),list:_pW('list'),open:_pW('open'),clip:_pW('clip'),note:_pW('note'),cmd:_pW('cmd'),xhr:_pW('xhr')}:null;
+function _pub(n,f){try{_pD(window,n,{value:f})}catch(e){}}
 function rx(a,u){for(var i=0;i<a.length;i++){try{if(new RegExp(a[i]).test(u))return true}catch(e){}}return false}
 function addStyle(css){var s=document.createElement('style');s.textContent=css;
   var put=function(){var p=document.head||document.documentElement;if(p){p.appendChild(s);return true}return false};
   if(!put()){var mo=new MutationObserver(function(){if(put())mo.disconnect()});mo.observe(document,{childList:true,subtree:true})}return s}
-var cbs={},seq=0;window.__pzXhrDone=function(id,res){var c=cbs[id];if(!c)return;delete cbs[id];try{
+var cbs=Object.create(null),cmds=Object.create(null),seq=0;_pub('__pzXhrDone',function(k,id,res){if(k!==K)return;var c=cbs[id];if(!c)return;delete cbs[id];try{
   if(res.error){c.onerror&&c.onerror(res);c.onloadend&&c.onloadend(res);return}
-  if(c.responseType==='json'){try{res.response=JSON.parse(res.responseText)}catch(e){res.response=null}}else res.response=res.responseText;
-  c.onload&&c.onload(res);c.onloadend&&c.onloadend(res)}catch(e){console.error(e)}};
-window.__pzCmds=window.__pzCmds||{};
+  if(c.responseType==='json'){try{res.response=_pP(res.responseText)}catch(e){res.response=null}}else res.response=res.responseText;
+  c.onload&&c.onload(res);c.onloadend&&c.onloadend(res)}catch(e){console.error(e)}});
+_pub('__pzCmd',function(k,n){if(k===K&&cmds[n])cmds[n]()});
 function api(s){
   var id=s.id;
-  function gv(k,d){var r=B?B.get(T,id,String(k)):null;return r==null?d:JSON.parse(r)}
-  function sv(k,v){B&&B.set(T,id,String(k),JSON.stringify(v))}
+  function gv(k,d){var r=B?B.get(T,id,String(k)):null;return r==null?d:_pP(r)}
+  function sv(k,v){B&&B.set(T,id,String(k),_pS(v))}
   function dv(k){B&&B.del(T,id,String(k))}
-  function lv(){return B?JSON.parse(B.list(T,id)):[]}
-  function xhr(o){var cid=++seq;cbs[cid]=o;B&&B.xhr(T,cid,JSON.stringify({method:o.method||'GET',url:o.url,headers:o.headers||{},data:o.data==null?null:String(o.data),timeout:o.timeout||0}));
+  function lv(){return B?_pP(B.list(T,id)):[]}
+  function xhr(o){var cid=++seq;cbs[cid]=o;B&&B.xhr(T,cid,_pS({method:o.method||'GET',url:o.url,headers:o.headers||{},data:o.data==null?null:String(o.data),timeout:o.timeout||0}));
     return{abort:function(){delete cbs[cid]}}}
   function open(u){B&&B.open(T,String(u))}
   function clip(t){B&&B.clip(T,String(t))}
-  function cmd(n,fn){window.__pzCmds[n]=fn;B&&B.cmd(T,String(n));return n}
-  function uncmd(n){delete window.__pzCmds[n]}
+  function cmd(n,fn){cmds[n]=fn;B&&B.cmd(T,String(n));return n}
+  function uncmd(n){delete cmds[n]}
   function note(t){var x=typeof t==='object'?(t.text||t.title):t;B&&B.note(T,String(x))}
   var info={script:{name:s.n,version:s.v,description:s.d},scriptHandler:'Polaris',version:'1.0'};
-  var P=function(f){return function(){var a=arguments;return new Promise(function(ok,no){try{ok(f.apply(null,a))}catch(e){no(e)}})}};
+  var P=function(f){return function(){var a=arguments;return new Promise(function(ok,no){try{ok(_pA(f,null,a))}catch(e){no(e)}})}};
   var GM={info:info,getValue:P(gv),setValue:P(sv),deleteValue:P(dv),listValues:P(lv),addStyle:P(addStyle),openInTab:P(open),setClipboard:P(clip),
     registerMenuCommand:cmd,notification:note,
     xmlHttpRequest:function(o){return new Promise(function(ok,no){var oo=Object.assign({},o);oo.onload=function(r){o.onload&&o.onload(r);ok(r)};oo.onerror=function(r){o.onerror&&o.onerror(r);no(r)};xhr(oo)})}};
@@ -254,7 +258,7 @@ S.forEach(function(s){
   if(s.nf&&!top_)return;
   if(s.css!=null){var c=cssFor(s.css,H);if(c.trim()){var go=function(){addStyle(c)};go()}return}
   if(!rx(s.m,H)||rx(s.x,H))return;
-  var run=function(){try{s.f.apply(window,api(s))}catch(e){console.error('[Polaris userscript] '+s.n,e)}};
+  var run=function(){try{_pA(s.f,window,api(s))}catch(e){console.error('[Polaris userscript] '+s.n,e)}};
   if(s.r==='start')run();
   else if(s.r==='end'){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',run,{once:true});else run()}
   else{var idle=function(){setTimeout(run,0)};if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',idle,{once:true});else idle()}

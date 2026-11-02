@@ -60,7 +60,11 @@ jobs:
           NOTES="release-notes/v$VERSION.md"; [ -f "$NOTES" ] || NOTES=/dev/null
           echo "NOTES=$NOTES" >> $GITHUB_ENV
 
-      - uses: softprops/action-gh-release@v2
+      # nothing after the build needs the signing key
+      - name: Remove signing key
+        run: rm -f polaris.jks keystore.properties
+
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: v${{ env.VERSION }}
           name: Polaris Browser ${{ env.VERSION }}
