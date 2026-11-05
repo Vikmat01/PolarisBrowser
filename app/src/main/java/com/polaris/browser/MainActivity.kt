@@ -1125,18 +1125,25 @@ class MainActivity : Activity() {
             } else Intent(Intent.ACTION_VIEW, Uri.parse(url))
         } catch (_: Exception) { null } ?: return
         val fallback = intent.getStringExtra("browser_fallback_url")?.takeIf { isWebUrl(it) }
+        // Android 11+ hides most installed apps from us (package visibility), so a bank app
+        // registered for its own scheme (bank100000000008://, sbp, alfabank://…) won't resolve.
+        // Just try to start it and fall back only if the system really has no handler.
         val handler = packageManager.resolveActivity(intent, 0)
-        if (handler == null) {
+        val missing = {
             if (fallback != null) load(t, fallback)
             else if (intent.`package` != null) {
                 try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=${intent.`package`}"))) } catch (_: Exception) {}
             } else toast(this, "Нет приложения, чтобы открыть ссылку")
-            return
         }
-        val name = handler.loadLabel(packageManager).toString()
-        val go = { try { startActivity(intent) } catch (_: Exception) { toast(this, "Не удалось открыть") } }
+        val go = {
+            try { startActivity(intent) }
+            catch (_: android.content.ActivityNotFoundException) { missing() }
+            catch (_: Exception) { toast(this, "Не удалось открыть") }
+        }
+        val name = handler?.loadLabel(packageManager)?.toString()
         if (gesture) go()
-        else confirm("Открыть приложение?", "Сайт хочет открыть «$name».", "Открыть", "Отмена", onYes = go)
+        else confirm("Открыть приложение?", if (name != null) "Сайт хочет открыть «$name»." else "Сайт хочет открыть внешнее приложение.",
+            "Открыть", "Отмена", onYes = go)
     }
 
     // ───────────────────────── long press ─────────────────────────
