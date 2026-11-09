@@ -15,6 +15,7 @@
     <uses-feature android:name="android.hardware.location" android:required="false" />
 
     <queries>
+        <package android:name="com.polaris.asta" />
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="https" />

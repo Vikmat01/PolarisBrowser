@@ -101,6 +101,8 @@ fun MainActivity.showMenu() {
     row(Ic.DOWNLOAD, "Загрузки") { showLibrary(2) }
     if (!home) {
         row(Ic.READER, "Режим чтения", if (t.readerable) "Статья найдена" else null) { openReader() }
+        if (prefs.astra && !t.incognito && Astra.installed(this))
+            row(Ic.ASTRA, "Спросить Astra", "Перескажет, объяснит или переведёт страницу", color = p.accent) { askAstra() }
         row(Ic.PLAY, "Видео на странице", "Открыть в плеере Polaris") { findPageVideos() }
         toggleRow(Ic.DESKTOP, "Версия для ПК", t.desktop) {
             t.desktop = !t.desktop

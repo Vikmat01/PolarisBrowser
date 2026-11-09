@@ -17,8 +17,8 @@ android {
         applicationId = "com.polaris.browser"
         minSdk = 29
         targetSdk = 35
-        versionCode = 27
-        versionName = "2.13"
+        versionCode = 28
+        versionName = "2.14"
     }
 
     signingConfigs {

@@ -1329,6 +1329,34 @@ class MainActivity : Activity() {
         }
     }
 
+    // ───────────────────────── Astra AI ─────────────────────────
+
+    /** Sends the page (title, address, article text) to Astra; Astra opens its panel over the browser. */
+    internal fun askAstra() {
+        val t = cur ?: return
+        val w = t.web ?: return
+        if (t.isHome || t.incognito) return
+        val js = "(function(){var txt='';try{$readabilityJs;var r=new Readability(document.cloneNode(true)).parse();if(r&&r.textContent)txt=r.textContent}catch(e){}" +
+                "if(!txt||txt.length<200)txt=(document.body&&document.body.innerText)||'';" +
+                "return JSON.stringify({t:document.title||'',x:txt.replace(/\\s+/g,' ').trim().slice(0,24000)})})()"
+        w.evaluateJavascript(js) { res ->
+            val s = (try { JSONTokener(res).nextValue() } catch (_: Exception) { null }) as? String
+            val o = try { org.json.JSONObject(s ?: "") } catch (_: Exception) { null }
+            Astra.ask(this, o?.optString("t").orEmpty().ifBlank { t.title }, t.url, o?.optString("x").orEmpty())
+        }
+    }
+
+    /** Hide Astra's "Спросить Astra" in the selection menu when Astra features are off or the tab is incognito. */
+    override fun onActionModeStarted(mode: android.view.ActionMode) {
+        super.onActionModeStarted(mode)
+        if (prefs.astra && cur?.incognito != true) return
+        val m = mode.menu
+        for (i in m.size() - 1 downTo 0) {
+            val it = m.getItem(i)
+            if (it.intent?.component?.packageName == Astra.PKG || it.intent?.`package` == Astra.PKG) m.removeItem(it.itemId)
+        }
+    }
+
     // ───────────────────────── fullscreen video ─────────────────────────
 
     private fun showVideo(view: View, cb: WebChromeClient.CustomViewCallback) {

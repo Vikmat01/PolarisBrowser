@@ -23,6 +23,10 @@ class Prefs(ctx: Context) {
     var homeAnim: Boolean
         get() = sp.getBoolean("homeAnim", true)
         set(v) = sp.edit().putBoolean("homeAnim", v).apply()
+    /** Astra AI features: "Спросить Astra" in the menu and in the text selection menu. */
+    var astra: Boolean
+        get() = sp.getBoolean("astra", true)
+        set(v) = sp.edit().putBoolean("astra", v).apply()
     var adblock: Boolean
         get() = sp.getBoolean("adblock", true)
         set(v) = sp.edit().putBoolean("adblock", v).apply()

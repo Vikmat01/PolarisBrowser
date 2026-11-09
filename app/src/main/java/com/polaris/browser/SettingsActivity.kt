@@ -123,6 +123,12 @@ class SettingsActivity : Activity() {
             item("Очистить историю", null) { Db(this@SettingsActivity).clearHistory(); toast(this@SettingsActivity, "История очищена") }
         }
 
+        section("Astra AI") {
+            val has = Astra.installed(this@SettingsActivity)
+            toggle("Функции Astra", if (has) "«Спросить Astra» в меню и при выделении текста. В инкогнито не работает"
+                else "Установи Astra AI, чтобы спрашивать её о страницах", prefs.astra) { prefs.astra = it }
+        }
+
         section("Браузер") {
             item("Сделать браузером по умолчанию", "Ссылки из других приложений будут открываться в Polaris") {
                 val rm = getSystemService(RoleManager::class.java)
