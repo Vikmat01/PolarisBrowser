@@ -57,14 +57,6 @@ keyAlias=…
 keyPassword=…
 ```
 
-## 🚀 Выпуск новой версии
-
-1. Поднять `versionCode` и `versionName` в `app/build.gradle.kts`.
-2. Описать изменения в `release-notes/vX.Y.md` и закоммитить в `main`.
-3. GitHub Actions соберёт подписанный APK и опубликует релиз, браузеры сами предложат обновиться.
-
-Секреты репозитория для подписи: `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`.
-
 ## 📄 Лицензия
 
 Polaris Browser распространяется по лицензии [GNU GPL v3](LICENSE). Код можно изучать, менять и распространять, но изменённые версии тоже должны оставаться открытыми под GPL-3.0.
