@@ -809,12 +809,8 @@ class GlassBar(val act: Activity) : Dialog(act, android.R.style.Theme_Translucen
         if (on) idle.post(idleTick)
     }
 
-    private var lastCap = 0L
     private fun tick() {
-        // A full-width GPU readback every 8 ms frame (120 Hz) steals time from the page's own
-        // rendering; ~40 updates/s is indistinguishable through frosted glass.
-        val now = SystemClock.uptimeMillis()
-        if (now - lastCap >= 24) { lastCap = now; captureBand() }
+        captureBand()
         if (SystemClock.uptimeMillis() < liveUntil) Choreographer.getInstance().postFrameCallback(frameCb) else looping = false
     }
 
