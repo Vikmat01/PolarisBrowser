@@ -53,7 +53,8 @@ jobs:
       - name: Build
         run: |
           chmod +x gradlew
-          ./gradlew assembleRelease --no-daemon
+          # network hiccups (Maven/Gradle 5xx, timeouts) happen; retry before giving up
+          for i in 1 2 3; do ./gradlew assembleRelease --no-daemon && break; [ $i = 3 ] && exit 1; echo "retry $i"; sleep 20; done
           VERSION=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)
           cp app/build/outputs/apk/release/app-release.apk "PolarisBrowser-$VERSION.apk"
           echo "VERSION=$VERSION" >> $GITHUB_ENV
