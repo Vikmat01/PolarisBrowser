@@ -47,6 +47,18 @@ import kotlin.concurrent.thread
 
 private const val GPC_JS = "try{Object.defineProperty(Navigator.prototype,'globalPrivacyControl',{get:function(){return true},configurable:true});Object.defineProperty(Navigator.prototype,'doNotTrack',{get:function(){return '1'},configurable:true})}catch(e){}"
 
+/** Ask for the display's fastest mode (120 Hz on most phones); some vendors keep apps at 60 Hz otherwise. */
+fun requestMaxRefresh(w: android.view.Window) {
+    try {
+        val d = w.context.display ?: return
+        val cur = d.mode
+        val best = d.supportedModes
+            .filter { it.physicalWidth == cur.physicalWidth && it.physicalHeight == cur.physicalHeight }
+            .maxByOrNull { it.refreshRate } ?: return
+        w.attributes = w.attributes.apply { preferredDisplayModeId = best.modeId }
+    } catch (_: Exception) {}
+}
+
 class MainActivity : Activity() {
 
     internal lateinit var prefs: Prefs
@@ -119,6 +131,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        requestMaxRefresh(window)
         prefs = Prefs(this)
         db = Db(this)
         p = Palette.forPrefs(this, prefs)

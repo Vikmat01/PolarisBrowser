@@ -120,6 +120,11 @@ class Backdrop(private val act: Activity, private val scale: Float = 0.5f, priva
     var bitmap: Bitmap? = null; private set
     var shader: BitmapShader? = null; private set
     var softShader: BitmapShader? = null; private set
+    private val softBufs = ArrayList<Bitmap>()
+    private val softCanvas = android.graphics.Canvas()
+    private val softPaint = android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG)
+    private val softRect = Rect()
+    private var softSrc: Bitmap? = null
     var softScale = scale / 8f; private set
     val rect = Rect()
     private val pool = ArrayDeque<Bitmap>()
@@ -152,14 +157,25 @@ class Backdrop(private val act: Activity, private val scale: Float = 0.5f, priva
                     rect.set(copy)
                     shader = linear(target)
                     if (makeSoft) {
-                        // successive halving with bilinear filtering ≈ smooth gaussian
+                        // successive halving with bilinear filtering ≈ smooth gaussian;
+                        // into reused bitmaps so scrolling doesn't churn the GC
                         var s: Bitmap = target
-                        var f = 1
-                        while (f < 8 && s.width > 8 && s.height > 8) {
-                            s = Bitmap.createScaledBitmap(s, s.width / 2, s.height / 2, true); f *= 2
+                        var lvl = 0
+                        while (lvl < 3 && s.width > 8 && s.height > 8) {
+                            val nw = s.width / 2; val nh = s.height / 2
+                            var d = softBufs.getOrNull(lvl)
+                            if (d == null || d.width != nw || d.height != nh) {
+                                d = Bitmap.createBitmap(nw, nh, Bitmap.Config.ARGB_8888)
+                                if (lvl < softBufs.size) softBufs[lvl] = d else softBufs.add(d)
+                            }
+                            softCanvas.setBitmap(d)
+                            softRect.set(0, 0, nw, nh)
+                            softCanvas.drawBitmap(s, null, softRect, softPaint)
+                            s = d; lvl++
                         }
+                        softCanvas.setBitmap(null)
                         softScale = scale * s.width / target.width
-                        softShader = linear(s)
+                        if (softShader == null || softSrc !== s) { softShader = linear(s); softSrc = s }
                     }
                     listeners.toList().forEach { it() }
                     done?.invoke(true)
