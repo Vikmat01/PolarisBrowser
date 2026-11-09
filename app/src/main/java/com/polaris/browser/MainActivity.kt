@@ -940,10 +940,18 @@ class MainActivity : Activity() {
             t.cmds.clear()
             t.favicon = favicon
             t.progress = if (url.startsWith(Tab.HOME)) 100 else 5
+            if (url.startsWith(Tab.HOME) && (p.dark || t.incognito)) view.setBackgroundColor(0xFF0A0D15.toInt())
             if (cur === t) updateChrome()
         }
 
         override fun onPageCommitVisible(view: WebView, url: String) {
+            // Sites without their own background assume a white canvas (browser default).
+            // Keep the dark canvas only for our home page / forced-dark mode, otherwise
+            // dark text ends up on our dark background.
+            view.setBackgroundColor(
+                if (url.startsWith(Tab.HOME) || prefs.forceDark || (t.incognito && url.startsWith(Tab.HOME))) 0xFF0A0D15.toInt()
+                else Color.WHITE
+            )
             injectCss(view, pageHost)
             if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT) && url.startsWith("http")) {
                 val b = bundle(); if (b.isNotEmpty()) view.evaluateJavascript(b, null)
