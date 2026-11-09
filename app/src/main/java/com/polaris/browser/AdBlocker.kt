@@ -67,6 +67,8 @@ object AdBlocker {
         }
     }
 
+    private val WHOLE_HOST_OPTS = setOf("third-party", "3p", "important", "all", "document", "doc")
+
     private val SIMPLE_SEL = Regex("^[#.\\[a-zA-Z][^{}]*$")
 
     private fun parse(lines: List<String>, seed: Set<String>) {
@@ -81,10 +83,16 @@ object AdBlocker {
             when {
                 l.startsWith("@@||") -> domainOf(l.substring(4))?.let { a.add(it) }
                 l.startsWith("||") -> {
-                    val opt = l.substringAfter('$', "")
-                    if (opt.contains("domain=") || opt.contains("popup") || opt.contains("badfilter") ||
-                        opt.contains("csp") || opt.contains("redirect")) continue
-                    domainOf(l.substring(2))?.let { b.add(it) }
+                    // Only whole-host rules ("||ads.example.com^"). Rules with a path
+                    // ("||cdn.site.ru/banners/") or limited to some request types must not
+                    // block the entire host — that broke sites (e.g. DNS lost its CSS).
+                    val body = l.substring(2).substringBefore('$')
+                    val opts = l.substringAfter('$', "").split(',').map { it.trim() }.filter { it.isNotEmpty() }
+                    if (!opts.all { it in WHOLE_HOST_OPTS }) continue
+                    val d = domainOf(body) ?: continue
+                    val rest = body.substring(d.length)
+                    if (rest.isNotEmpty() && rest != "^" && rest != "^|") continue
+                    b.add(d)
                 }
                 l.startsWith("##") -> {
                     val sel = l.substring(2)
@@ -119,6 +127,15 @@ object AdBlocker {
         return d
     }
 
+    /** Rough registrable domain: a.dns-shop.ru and www.dns-shop.ru are the same site. */
+    private fun site(h: String): String {
+        val p = h.split('.')
+        if (p.size <= 2) return h
+        val sld = p[p.size - 2]
+        val n = if (sld.length <= 3 && sld in setOf("co", "com", "net", "org", "gov", "edu", "ac", "msk", "spb")) 3 else 2
+        return p.takeLast(n).joinToString(".")
+    }
+
     private fun matches(set: Set<String>, host: String): Boolean {
         var h = host
         while (true) {
@@ -132,7 +149,7 @@ object AdBlocker {
 
     fun isAd(url: Uri, pageHost: String?): Boolean {
         val host = url.host?.lowercase() ?: return false
-        if (pageHost != null && (host == pageHost || host.endsWith(".$pageHost") || pageHost.endsWith(".$host"))) {
+        if (pageHost != null && site(host) == site(pageHost.lowercase())) {
             // First-party requests: block only if the exact host is listed (e.g. ads.site.com)
             if (!block.contains(host)) return false
         }
