@@ -30,6 +30,9 @@
         android:hardwareAccelerated="true"
         android:largeHeap="true"
         android:theme="@style/Polaris">
+        <!-- don't send WebView usage/crash metrics to Google -->
+        <meta-data android:name="android.webkit.WebView.MetricsOptOut" android:value="true" />
+
 
         <activity
             android:name=".MainActivity"

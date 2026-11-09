@@ -45,6 +45,8 @@ import java.net.URL
 import java.net.URLEncoder
 import kotlin.concurrent.thread
 
+private const val GPC_JS = "try{Object.defineProperty(Navigator.prototype,'globalPrivacyControl',{get:function(){return true},configurable:true});Object.defineProperty(Navigator.prototype,'doNotTrack',{get:function(){return '1'},configurable:true})}catch(e){}"
+
 class MainActivity : Activity() {
 
     internal lateinit var prefs: Prefs
@@ -711,9 +713,35 @@ class MainActivity : Activity() {
         val w = t.web
         if (w == null) { t.pendingUrl = url; t.url = url; return }
         if (url.isEmpty()) { loadHome(t); return }
-        t.url = url
-        w.loadUrl(url)
+        val u = upgrade(t, url)
+        t.url = u
+        w.loadUrl(u, privacyHeaders())
         updateChrome()
+    }
+
+    private val httpOk = HashSet<String>()
+
+    internal fun privacyHeaders(): Map<String, String> = if (prefs.gpc) mapOf("Sec-GPC" to "1", "DNT" to "1") else emptyMap()
+
+    /** HTTPS-first: plain http addresses of public sites are tried over https first. */
+    private fun upgrade(t: Tab, url: String): String {
+        if (!prefs.httpsOnly || !url.startsWith("http://", true)) return url
+        val host = Uri.parse(url).host?.lowercase() ?: return url
+        if (host in httpOk || !host.contains('.') || host.endsWith(".local") || host.endsWith(".lan") ||
+            host.endsWith(".home") || host.endsWith(".internal") || Regex("^[0-9.]+$|:").containsMatchIn(host)) return url
+        t.upgrading = host
+        return "https://" + url.substring(7)
+    }
+
+    private fun offerHttp(t: Tab, view: WebView, httpsUrl: String) {
+        val host = t.upgrading ?: return
+        t.upgrading = null
+        val plain = "http://" + httpsUrl.substringAfter("://")
+        confirm("Нет защищённого соединения",
+            "$host не поддерживает HTTPS. Всё, что вы введёте на этом сайте, можно будет перехватить.",
+            "Открыть без защиты", "Назад", danger = true,
+            onYes = { httpOk.add(host); t.url = plain; view.loadUrl(plain, privacyHeaders()) },
+            onNo = { if (view.canGoBack()) view.goBack() else loadHome(t) })
     }
 
     internal fun loadHome(t: Tab) {
@@ -793,14 +821,13 @@ class MainActivity : Activity() {
         s.loadWithOverviewMode = true
         s.setSupportMultipleWindows(true)
         s.javaScriptCanOpenWindowsAutomatically = true
-        s.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         s.mediaPlaybackRequiresUserGesture = true
         s.setGeolocationEnabled(true)
-        if (t.incognito && !profiles) {
-            s.cacheMode = WebSettings.LOAD_NO_CACHE
-            CookieManager.getInstance().setAcceptThirdPartyCookies(w, false)
-        } else CookieManager.getInstance().setAcceptThirdPartyCookies(w, true)
+        if (t.incognito && !profiles) s.cacheMode = WebSettings.LOAD_NO_CACHE
         applySettings(w, t)
+        if (prefs.gpc && WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+            try { WebViewCompat.addDocumentStartJavaScript(w, GPC_JS, setOf("*")) } catch (_: Exception) {}
+        }
 
         if (prefs.adblock && prefs.cosmetic && AdBlocker.genericCss.isNotEmpty() &&
             WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
@@ -846,6 +873,8 @@ class MainActivity : Activity() {
 
     internal fun applySettings(w: WebView, t: Tab) {
         val s = w.settings
+        s.mixedContentMode = if (prefs.httpsOnly) WebSettings.MIXED_CONTENT_NEVER_ALLOW else WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+        CookieManager.getInstance().setAcceptThirdPartyCookies(w, !t.incognito && !prefs.block3p)
         s.javaScriptEnabled = prefs.javascript
         s.textZoom = prefs.textZoom
         s.userAgentString = if (t.desktop) desktopUa else mobileUa
@@ -874,6 +903,16 @@ class MainActivity : Activity() {
                 val q = req.url.getQueryParameter("q") ?: ""
                 if (q.isNotBlank()) main.post { load(t, resolve(q)) }
                 return true
+            }
+            if (scheme == "http" && req.isForMainFrame && prefs.httpsOnly) {
+                val host = req.url.host?.lowercase()
+                if (req.isRedirect && host != null && host == t.upgrading) {
+                    // the https version sends us back to http: site has no working https
+                    main.post { offerHttp(t, view, "https://" + url.substringAfter("://")) }
+                    return true
+                }
+                val up = upgrade(t, url)
+                if (up != url) { view.loadUrl(up, privacyHeaders()); return true }
             }
             if (scheme == "http" || scheme == "https") {
                 if (req.isForMainFrame && UserScripts.isScriptUrl(req.url.path)) {
@@ -914,6 +953,7 @@ class MainActivity : Activity() {
 
         override fun onPageFinished(view: WebView, url: String) {
             t.progress = 100
+            if (t.upgrading != null && Uri.parse(url).host?.lowercase() == t.upgrading && url.startsWith("https")) t.upgrading = null
             if (cur === t) { scheduleSample(80); glassBar.kick(1200); main.postDelayed({ if (cur === t) sampleTop() }, 900) }
             if (url.startsWith(Tab.HOME)) {
                 t.title = ""
@@ -965,7 +1005,22 @@ class MainActivity : Activity() {
             return null
         }
 
+        override fun onReceivedError(view: WebView, req: WebResourceRequest, err: WebResourceError) {
+            if (req.isForMainFrame && t.upgrading != null && req.url.scheme == "https" && req.url.host?.lowercase() == t.upgrading)
+                offerHttp(t, view, req.url.toString())
+        }
+
         override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
+            val host = Uri.parse(error.url).host?.lowercase()
+            if (t.upgrading != null && host == t.upgrading) { handler.cancel(); offerHttp(t, view, error.url); return }
+            if (prefs.httpsOnly) {
+                handler.cancel()
+                confirm("Открытие заблокировано",
+                    "Сертификат сайта $host не прошёл проверку — соединение могут перехватывать. " +
+                        "Если очень нужно открыть, выключите «Только защищённые соединения» в настройках.",
+                    "Понятно", "Назад", onYes = {}, onNo = {})
+                return
+            }
             confirm(
                 "Небезопасное соединение",
                 "Сертификат сайта ${Uri.parse(error.url).host} не прошёл проверку. Злоумышленники могут перехватить данные.",
@@ -1529,7 +1584,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun fetchSuggestions(q: String): List<String> = try {
+    private fun fetchSuggestions(q: String): List<String> = if (!prefs.suggestions) emptyList() else try {
         val e = URLEncoder.encode(q, "UTF-8")
         val u = when (prefs.engine) {
             "ddg", "brave", "startpage" -> "https://duckduckgo.com/ac/?type=list&q=$e"

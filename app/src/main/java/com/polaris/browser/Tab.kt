@@ -10,6 +10,8 @@ class Tab(
     var parentId: Long = -1,
 ) {
     var web: WebView? = null
+    /** Host we silently moved from http to https; if https fails we offer plain http. */
+    var upgrading: String? = null
     var url: String = pendingUrl ?: ""
     var title: String = ""
     var progress: Int = 100

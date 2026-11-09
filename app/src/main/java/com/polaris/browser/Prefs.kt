@@ -45,6 +45,18 @@ class Prefs(ctx: Context) {
     var saveHistory: Boolean
         get() = sp.getBoolean("saveHistory", true)
         set(v) = sp.edit().putBoolean("saveHistory", v).apply()
+    var block3p: Boolean
+        get() = sp.getBoolean("block3p", true)
+        set(v) = sp.edit().putBoolean("block3p", v).apply()
+    var httpsOnly: Boolean
+        get() = sp.getBoolean("httpsOnly", true)
+        set(v) = sp.edit().putBoolean("httpsOnly", v).apply()
+    var suggestions: Boolean
+        get() = sp.getBoolean("suggestions", true)
+        set(v) = sp.edit().putBoolean("suggestions", v).apply()
+    var gpc: Boolean
+        get() = sp.getBoolean("gpc", true)
+        set(v) = sp.edit().putBoolean("gpc", v).apply()
     var autoHideBar: Boolean
         get() = sp.getBoolean("autoHideBar", true)
         set(v) = sp.edit().putBoolean("autoHideBar", v).apply()

@@ -105,6 +105,10 @@ class SettingsActivity : Activity() {
         }
 
         section("Конфиденциальность") {
+            toggle("Блокировать сторонние cookies", "Мешает рекламным сетям следить за вами между сайтами. Изредка ломает вход через чужие окна", prefs.block3p) { prefs.block3p = it }
+            toggle("Только защищённые соединения", "Открывать сайты по HTTPS, не грузить незащищённые картинки и видео, не пускать на сайты с поддельным сертификатом", prefs.httpsOnly) { prefs.httpsOnly = it }
+            toggle("Просить сайты не продавать данные", "Сигнал Global Privacy Control и Do Not Track", prefs.gpc) { prefs.gpc = it }
+            toggle("Подсказки поиска", "Пока вы печатаете, запрос отправляется поисковику", prefs.suggestions) { prefs.suggestions = it }
             toggle("Сохранять историю", null, prefs.saveHistory) { prefs.saveHistory = it }
             toggle("JavaScript", "Без него многие сайты не работают", prefs.javascript) { prefs.javascript = it }
             item("Очистить кэш", null) {
