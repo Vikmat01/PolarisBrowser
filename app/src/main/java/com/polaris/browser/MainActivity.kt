@@ -59,6 +59,29 @@ fun requestMaxRefresh(w: android.view.Window) {
     } catch (_: Exception) {}
 }
 
+/**
+ * Pull-to-refresh that only reacts to clearly vertical drags. The stock one grabs any gesture
+ * that drifts a few pixels down while the page is at the top, which cut horizontal swipes
+ * (carousels, image strips, maps) short and made them stutter.
+ */
+class VerticalSwipeRefresh(ctx: android.content.Context) : SwipeRefreshLayout(ctx) {
+    private val slop = android.view.ViewConfiguration.get(ctx).scaledTouchSlop
+    private var x0 = 0f; private var y0 = 0f
+    private var horizontal = false
+    override fun onInterceptTouchEvent(e: MotionEvent): Boolean {
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> { x0 = e.x; y0 = e.y; horizontal = false }
+            MotionEvent.ACTION_MOVE -> {
+                if (horizontal) return false
+                val dx = kotlin.math.abs(e.x - x0); val dy = e.y - y0
+                if (dx > slop && dx > kotlin.math.abs(dy)) { horizontal = true; return false }
+                if (dy < slop * 2 || dy < dx * 1.5f) return false
+            }
+        }
+        return super.onInterceptTouchEvent(e)
+    }
+}
+
 class MainActivity : Activity() {
 
     internal lateinit var prefs: Prefs
@@ -318,7 +341,7 @@ class MainActivity : Activity() {
         root = FrameLayout(this)
         root.setBackgroundColor(p.bg)
 
-        swipe = SwipeRefreshLayout(this)
+        swipe = VerticalSwipeRefresh(this)
         holder = FrameLayout(this)
         swipe.addView(holder, ViewGroup.LayoutParams(MATCH, MATCH))
         swipe.setOnChildScrollUpCallback { _, _ -> (cur?.web?.scrollY ?: 0) > 0 || cur?.isHome == true }
