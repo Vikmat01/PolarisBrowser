@@ -615,7 +615,29 @@ class GlassBar(val act: Activity) : Dialog(act, android.R.style.Theme_Translucen
     var onMiniTap: (() -> Unit)? = null
     private val slop = ViewConfiguration.get(act).scaledTouchSlop
     private var downX = 0f; private var downY = 0f; private var dragging = false
+    private var forwarding = false
     private val frame = object : FrameLayout(act) {
+        override fun dispatchTouchEvent(e: MotionEvent): Boolean {
+            if (e.actionMasked == MotionEvent.ACTION_DOWN) {
+                forwarding = false
+                if (mini || (miniAnim?.isRunning == true && miniF > 0.3f)) {
+                    val r = content.shapeBounds()
+                    val x = e.x - content.left - content.translationX
+                    val y = e.y - content.top - content.translationY
+                    val slack = act.dp(6)
+                    if (x < r.left - slack || x > r.right + slack || y < r.top - slack) forwarding = true
+                }
+            }
+            if (forwarding) {
+                // not on the capsule: this touch belongs to the page underneath
+                val ev = MotionEvent.obtain(e)
+                ev.setLocation(e.rawX, e.rawY)
+                try { act.window.decorView.dispatchTouchEvent(ev) } finally { ev.recycle() }
+                if (e.actionMasked == MotionEvent.ACTION_UP || e.actionMasked == MotionEvent.ACTION_CANCEL) forwarding = false
+                return true
+            }
+            return super.dispatchTouchEvent(e)
+        }
         override fun onInterceptTouchEvent(e: MotionEvent): Boolean {
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> { downX = e.rawX; downY = e.rawY; dragging = false }
@@ -776,12 +798,12 @@ class GlassBar(val act: Activity) : Dialog(act, android.R.style.Theme_Translucen
         miniAnim?.cancel()
         kick(900)
         val fw = (fullW - pad * 2).toFloat(); val cw = (miniW - pad * 2).toFloat()
-        if (!m) {
-            // grow the window back first; the capsule keeps drawing at its small size
-            content.shapeW = fw + (cw - fw) * miniF; content.shapeH = fullH + (miniH - fullH) * miniF
+        // The window keeps its full size the whole time: resizing a window is asynchronous and
+        // lagged behind the animation (the bar jumped sideways). Touches beside the small
+        // capsule are handed to the page instead (see the frame's dispatchTouchEvent).
+        if ((content.layoutParams as FrameLayout.LayoutParams).height != fullH) {
             (content.layoutParams as FrameLayout.LayoutParams).height = fullH
             content.requestLayout()
-            w.attributes = w.attributes.apply { width = fullW }
         }
         miniAnim = ValueAnimator.ofFloat(miniF, if (m) 1f else 0f).apply {
             duration = if (m) 360 else 440
@@ -792,18 +814,14 @@ class GlassBar(val act: Activity) : Dialog(act, android.R.style.Theme_Translucen
                 content.shapeW = fw + (cw - fw) * f
                 content.shapeH = (fullH + (miniH - fullH) * f).coerceAtLeast(1f)
                 content.invalidate()
-                val rowA = (1f - f * 2.2f).coerceIn(0f, 1f)
+                // buttons only while the capsule is still/again wide enough to hold them
+                val rowA = ((0.5f - f) / 0.4f).coerceIn(0f, 1f)
                 for (i in 0 until content.childCount) content.getChildAt(i).alpha = rowA
                 miniLabel.alpha = ((f - 0.45f) / 0.55f).coerceIn(0f, 1f)
                 placeLabel()
             }
             doOnEnd {
-                if (mini) {
-                    // settle: shrink the window to the capsule so the page around it stays tappable
-                    (content.layoutParams as FrameLayout.LayoutParams).height = miniH
-                    content.requestLayout()
-                    w.attributes = w.attributes.apply { width = miniW }
-                } else {
+                if (!mini) {
                     content.shapeW = Float.MAX_VALUE; content.shapeH = Float.MAX_VALUE
                     (content.layoutParams as FrameLayout.LayoutParams).height = WRAP
                     content.requestLayout()
