@@ -257,7 +257,44 @@ class GlassDrawable(
 
 /** Containers that forward touches to their glass background (finger glow) and optionally wobble like jelly. */
 class LiquidFrame(ctx: Context, private val jelly: Boolean = false) : FrameLayout(ctx) {
+    /**
+     * Optional glass drawn in a bottom-centred [shapeW]×[shapeH] capsule instead of as the
+     * background. Changing the capsule size only redraws (render-thread friendly, in step
+     * with the display's refresh rate) — no layout or window resize per frame.
+     */
+    var shape: Drawable? = null
+        set(v) { field?.callback = null; field = v; v?.callback = this; setWillNotDraw(v == null && background == null); invalidate() }
+    var shapeW = Float.MAX_VALUE
+    var shapeH = Float.MAX_VALUE
+    private val shapeRect = Rect()
+    private val shapeF = RectF()
+    private val clip = Path()
+
+    override fun verifyDrawable(who: Drawable): Boolean = who === shape || super.verifyDrawable(who)
+
+    fun shapeBounds(): Rect {
+        val w = minOf(shapeW, width.toFloat()); val h = minOf(shapeH, height.toFloat())
+        val l = ((width - w) / 2f)
+        shapeRect.set(l.toInt(), (height - h).toInt(), (l + w).toInt(), height)
+        return shapeRect
+    }
+
+    override fun draw(c: Canvas) {
+        shape?.let { it.bounds = shapeBounds(); it.draw(c) }
+        super.draw(c)
+    }
+
+    override fun dispatchDraw(c: Canvas) {
+        val sh = shape
+        if (sh == null || (shapeW >= width && shapeH >= height)) { super.dispatchDraw(c); return }
+        val r = shapeBounds(); shapeF.set(r)
+        val rad = r.height() / 2f
+        clip.reset(); clip.addRoundRect(shapeF, rad, rad, Path.Direction.CW)
+        c.save(); c.clipPath(clip); super.dispatchDraw(c); c.restore()
+    }
+
     override fun dispatchTouchEvent(e: MotionEvent): Boolean {
+        (shape as? GlassSurface)?.touch(e)
         (background as? GlassSurface)?.touch(e)
         if (jelly) jellyTouch(this, e)
         return super.dispatchTouchEvent(e)
@@ -635,6 +672,7 @@ class GlassBar(val act: Activity) : Dialog(act, android.R.style.Theme_Translucen
         frame.clipChildren = false; frame.clipToPadding = false
         frame.addView(content, FrameLayout.LayoutParams(MATCH, WRAP))
         frame.addView(miniLabel, FrameLayout.LayoutParams(MATCH, MATCH))
+        content.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> if (miniLabel.visibility == View.VISIBLE) placeLabel() }
         setContentView(frame)
         window?.let { requestMaxRefresh(it) }
         window?.apply {
@@ -673,14 +711,16 @@ class GlassBar(val act: Activity) : Dialog(act, android.R.style.Theme_Translucen
             ld.blurDp = blurDp
             ld.soft = Palette.glassLevel == "solid"
             ld.dark = dk
-            content.background = ld
+            content.background = null
+            content.shape = ld
             ld.invalidateSelf()
             return
         }
         val blur = blurAvailable(act)
         fill.setColor(if (incognito) (if (blur) 0xB01E2229.toInt() else 0xF01E2229.toInt()) else if (blur) p.glass else p.glassStrong)
         window?.let { w -> if (Build.VERSION.SDK_INT >= 31) w.setBackgroundBlurRadius(if (blur) act.dp(26) else 0) }
-        content.background = GlassDrawable(act.dp(radiusDp).toFloat(), Color.TRANSPARENT, p.dark || incognito, act.density,
+        content.background = null
+        content.shape = GlassDrawable(act.dp(radiusDp).toFloat(), Color.TRANSPARENT, p.dark || incognito, act.density,
             Palette.mix(0xFFFFFF, p.accent and 0xFFFFFF, 0.35f))
     }
 
@@ -734,32 +774,52 @@ class GlassBar(val act: Activity) : Dialog(act, android.R.style.Theme_Translucen
         miniLabel.visibility = View.VISIBLE
         miniLabel.isClickable = m
         miniAnim?.cancel()
-        kick(700)
+        kick(900)
+        val fw = (fullW - pad * 2).toFloat(); val cw = (miniW - pad * 2).toFloat()
+        if (!m) {
+            // grow the window back first; the capsule keeps drawing at its small size
+            content.shapeW = fw + (cw - fw) * miniF; content.shapeH = fullH + (miniH - fullH) * miniF
+            (content.layoutParams as FrameLayout.LayoutParams).height = fullH
+            content.requestLayout()
+            w.attributes = w.attributes.apply { width = fullW }
+        }
         miniAnim = ValueAnimator.ofFloat(miniF, if (m) 1f else 0f).apply {
             duration = if (m) 360 else 440
             interpolator = if (m) PathInterpolator(0.3f, 0f, 0.2f, 1f) else OvershootInterpolator(1.1f)
             addUpdateListener {
                 val f = it.animatedValue as Float
                 miniF = f
-                val a = w.attributes
-                a.width = (fullW + (miniW - fullW) * f).toInt()
-                try { w.attributes = a } catch (_: Exception) {}
-                (content.layoutParams as FrameLayout.LayoutParams).height = (fullH + (miniH - fullH) * f).toInt().coerceAtLeast(1)
-                content.requestLayout()
+                content.shapeW = fw + (cw - fw) * f
+                content.shapeH = (fullH + (miniH - fullH) * f).coerceAtLeast(1f)
+                content.invalidate()
                 val rowA = (1f - f * 2.2f).coerceIn(0f, 1f)
                 for (i in 0 until content.childCount) content.getChildAt(i).alpha = rowA
                 miniLabel.alpha = ((f - 0.45f) / 0.55f).coerceIn(0f, 1f)
+                placeLabel()
             }
             doOnEnd {
-                if (!mini) {
+                if (mini) {
+                    // settle: shrink the window to the capsule so the page around it stays tappable
+                    (content.layoutParams as FrameLayout.LayoutParams).height = miniH
+                    content.requestLayout()
+                    w.attributes = w.attributes.apply { width = miniW }
+                } else {
+                    content.shapeW = Float.MAX_VALUE; content.shapeH = Float.MAX_VALUE
                     (content.layoutParams as FrameLayout.LayoutParams).height = WRAP
                     content.requestLayout()
                     miniLabel.visibility = View.GONE
-                    w.attributes = w.attributes.apply { width = fullW }
+                    content.invalidate()
                 }
             }
             start()
         }
+    }
+
+    /** Keep the site label centred on the capsule wherever the window is in its resize. */
+    private fun placeLabel() {
+        val h = content.height.toFloat()
+        val sh = minOf(content.shapeH, h)
+        miniLabel.translationY = (h - sh / 2f) - h / 2f
     }
 
     /** Screen rect of the capsule, or null while the bar is hidden / not laid out. */
