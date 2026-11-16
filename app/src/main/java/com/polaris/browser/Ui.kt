@@ -840,6 +840,9 @@ class GlassBar(val act: Activity) : Dialog(act, android.R.style.Theme_Translucen
         miniLabel.translationY = (h - sh / 2f) - h / 2f
     }
 
+    /** Height from the screen's bottom edge to the top of the full (not mini) bar. */
+    fun fullCoverPx(): Int = shownY + pad + (if (fullH > 0) fullH else content.height)
+
     /** Screen y of the visible capsule's top edge (full bar or mini pill), null when hidden. */
     fun coverTop(): Int? {
         if (hidden || !isShowing || content.height == 0) return null

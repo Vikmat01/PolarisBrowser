@@ -12,6 +12,8 @@ class Tab(
     var web: WebView? = null
     /** Host we silently moved from http to https; if https fails we offer plain http. */
     var upgrading: String? = null
+    /** Colour for the strip under our panel when the site has its own bottom bar; empty = none. */
+    var bottomFill = ""
     var url: String = pendingUrl ?: ""
     var title: String = ""
     var progress: Int = 100

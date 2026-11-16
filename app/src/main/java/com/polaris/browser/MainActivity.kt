@@ -45,19 +45,19 @@ import java.net.URL
 import java.net.URLEncoder
 import kotlin.concurrent.thread
 
-private const val LIFT_JS = """(function(){if(window.top!==window||window.__plSet)return;var inset=0,done=new Set(),t=0;
-function apply(el){var d=el.dataset;el.style.setProperty('bottom','calc('+d.plB+' + '+inset+'px)','important');
-if(d.plF){var sh=d.plS==='none'?'':d.plS+', ';if(inset)el.style.setProperty('box-shadow',sh+'0 '+inset+'px 0 0 '+d.plF,'important');else el.style.setProperty('box-shadow',d.plS)}}
-function fix(el){var cs=getComputedStyle(el);if(cs.position!=='fixed'&&cs.position!=='sticky')return false;
-var r=el.getBoundingClientRect();if(r.bottom<innerHeight-inset||r.height>innerHeight*0.45||cs.bottom==='auto')return true;
-if(el.dataset.plB===undefined){el.dataset.plB=cs.bottom;el.dataset.plS=cs.boxShadow;
-var bg=cs.backgroundColor;if(parseFloat(cs.bottom)===0&&bg&&bg!=='transparent'&&!/rgba\(.*,\s*0\)$/.test(bg))el.dataset.plF=bg}done.add(el);apply(el);return true}
-function scan(){t=0;done.forEach(function(el){if(!el.isConnected)done.delete(el);else apply(el)});if(!inset)return;
-[3,inset*0.35,inset*0.7,inset-4].forEach(function(dy){[0.08,0.3,0.5,0.7,0.92].forEach(function(fx){var els=document.elementsFromPoint(innerWidth*fx,innerHeight-dy);
-for(var i=0;i<els.length;i++){var e=els[i];while(e&&e!==document.body&&e!==document.documentElement){if(done.has(e)||fix(e))break;e=e.parentElement}}})})}
-function soon(){if(!t)t=setTimeout(scan,120)}
-window.__plSet=function(px){inset=px;scan()};
-addEventListener('scroll',soon,{passive:true});addEventListener('resize',soon);addEventListener('load',soon);setInterval(soon,1500)})();"""
+private const val LIFT_JS = """(function(){if(window.top!==window||window.__plSet)return;var range=0,last=null,t=0,H=document.documentElement;
+function clear(c){return !c||c==='transparent'||/,\s*0\)$/.test(c)}
+function pageBg(){var b=document.body;var c=b?getComputedStyle(b).backgroundColor:'';if(clear(c))c=getComputedStyle(H).backgroundColor;return clear(c)?'rgb(255, 255, 255)':c}
+function probe(){t=0;if(!range)return;var found=null,ys=[3,range*0.35,range*0.7,range-4],xs=[0.08,0.3,0.5,0.7,0.92];
+for(var a=0;a<ys.length&&!found;a++)for(var k=0;k<xs.length&&!found;k++){var els=document.elementsFromPoint(innerWidth*xs[k],innerHeight-ys[a]);
+for(var i=0;i<els.length&&!found;i++){var e=els[i];while(e&&e!==document.body&&e!==H){var cs=getComputedStyle(e);
+if(cs.position==='fixed'||cs.position==='sticky'){var r=e.getBoundingClientRect();
+if(r.bottom>=innerHeight-range&&r.height<innerHeight*0.45&&cs.bottom!=='auto'&&cs.visibility!=='hidden'&&r.height>0)found=[e,cs,r];break}e=e.parentElement}}}
+var v='';if(found){var cs=found[1],r=found[2];v=(r.width>innerWidth*0.9&&r.bottom>=innerHeight-2&&!clear(cs.backgroundColor))?cs.backgroundColor:pageBg()}
+if(v!==last){last=v;console.log('__plBottom:'+v)}}
+function soon(){if(!t)t=setTimeout(probe,150)}
+window.__plSet=function(px){range=px;soon()};
+addEventListener('scroll',soon,{passive:true});addEventListener('resize',soon);addEventListener('load',soon);addEventListener('click',function(){setTimeout(soon,350)},true);setInterval(soon,1500)})();"""
 
 private const val GPC_JS = "try{Object.defineProperty(Navigator.prototype,'globalPrivacyControl',{get:function(){return true},configurable:true});Object.defineProperty(Navigator.prototype,'doNotTrack',{get:function(){return '1'},configurable:true})}catch(e){}"
 
@@ -581,19 +581,37 @@ class MainActivity : Activity() {
         pushInset(if (m == 1) 380 else 0)
     }
 
-    /** Tell the page how much of its bottom edge our panel covers (CSS px). */
+    /** Give the page probe the height our full panel covers (CSS px) and refit the page. */
     internal fun pushInset(delayMs: Long) {
         main.postDelayed({
+            applyBottomFit()
             val t = cur ?: return@postDelayed
             val w = t.web ?: return@postDelayed
             if (t.isHome || !::glassBar.isInitialized) return@postDelayed
-            val top = if (barMode == 2 || imeBottom > 0) null else glassBar.coverTop()
-            val px = if (top == null) 0 else {
-                val l = IntArray(2); w.getLocationOnScreen(l)
-                ((l[1] + w.height - top + dp(6)).coerceAtLeast(0) / resources.displayMetrics.density).toInt()
-            }
+            val px = ((glassBar.fullCoverPx() + dp(6)) / resources.displayMetrics.density).toInt()
             w.evaluateJavascript("window.__plSet&&__plSet($px)", null)
         }, delayMs)
+    }
+
+    /**
+     * Sites with their own bottom bar or floating button: end the page just above our panel
+     * (like a classic browser toolbar) so those controls stay visible and tappable. The strip
+     * behind the panel takes the site's colour. Other pages keep scrolling under the glass.
+     */
+    internal fun applyBottomFit() {
+        if (!::glassBar.isInitialized) return
+        val t = cur
+        val fill = t?.bottomFill.orEmpty()
+        val want = t != null && !t.isHome && fill.isNotEmpty() && barMode != 2 && imeBottom == 0
+        val px = if (want) glassBar.fullCoverPx() + dp(6) else 0
+        if (want) holder.setBackgroundColor(parseCssColor(fill) ?: Color.WHITE)
+        if (holder.paddingBottom != px) holder.setPadding(0, 0, 0, px)
+    }
+
+    private fun parseCssColor(c: String): Int? {
+        val n = Regex("[0-9.]+").findAll(c).map { it.value.toFloat() }.toList()
+        if (n.size < 3) return null
+        return Color.rgb(n[0].toInt(), n[1].toInt(), n[2].toInt())
     }
 
     private fun refreshMiniText() {
@@ -660,6 +678,7 @@ class MainActivity : Activity() {
         val w = t.web ?: createWeb(t).also { t.web = it }
         (w.parent as? ViewGroup)?.removeView(w)
         holder.addView(w, FrameLayout.LayoutParams(MATCH, MATCH))
+        applyBottomFit()
         if (old != null && old !== t) {
             w.alpha = 0f; w.scaleX = 0.95f; w.scaleY = 0.95f
             w.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(260).setInterpolator(EASE_OUT).start()
@@ -895,7 +914,7 @@ class MainActivity : Activity() {
             try { WebViewCompat.addDocumentStartJavaScript(w, GPC_JS, setOf("*")) } catch (_: Exception) {}
         }
         if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
-            // lift the site's own bottom-pinned buttons/bars above our floating panel
+            // spot the site's own bottom-pinned buttons/bars so the page can end above our panel
             try { WebViewCompat.addDocumentStartJavaScript(w, LIFT_JS, setOf("*")) } catch (_: Exception) {}
         }
 
@@ -1010,6 +1029,7 @@ class MainActivity : Activity() {
             t.cmds.clear()
             t.favicon = favicon
             t.progress = if (url.startsWith(Tab.HOME)) 100 else 5
+            t.bottomFill = ""; if (cur === t) applyBottomFit()
             if (url.startsWith(Tab.HOME) && (p.dark || t.incognito)) view.setBackgroundColor(0xFF0A0D15.toInt())
             if (cur === t) updateChrome()
         }
@@ -1125,6 +1145,15 @@ class MainActivity : Activity() {
     private fun expandHex(c: String) = if (c.length == 4) "#" + c.drop(1).map { "$it$it" }.joinToString("") else c
 
     inner class Chrome(private val t: Tab) : WebChromeClient() {
+        override fun onConsoleMessage(m: ConsoleMessage): Boolean {
+            val msg = m.message()
+            if (msg.startsWith("__plBottom:")) {
+                t.bottomFill = msg.substringAfter(':')
+                if (cur === t) applyBottomFit()
+                return true
+            }
+            return super.onConsoleMessage(m)
+        }
         override fun onProgressChanged(view: WebView, newProgress: Int) {
             // the home page and its internal polaris:// taps are not real loads
             if (t.isHome || view.url?.startsWith(Tab.HOME) == true) { t.progress = 100; return }
