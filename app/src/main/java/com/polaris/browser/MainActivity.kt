@@ -46,10 +46,12 @@ import java.net.URLEncoder
 import kotlin.concurrent.thread
 
 private const val LIFT_JS = """(function(){if(window.top!==window||window.__plSet)return;var inset=0,done=new Set(),t=0;
-function apply(el){el.style.setProperty('bottom','calc('+el.dataset.plB+' + '+inset+'px)','important')}
+function apply(el){var d=el.dataset;el.style.setProperty('bottom','calc('+d.plB+' + '+inset+'px)','important');
+if(d.plF){var sh=d.plS==='none'?'':d.plS+', ';if(inset)el.style.setProperty('box-shadow',sh+'0 '+inset+'px 0 0 '+d.plF,'important');else el.style.setProperty('box-shadow',d.plS)}}
 function fix(el){var cs=getComputedStyle(el);if(cs.position!=='fixed'&&cs.position!=='sticky')return false;
 var r=el.getBoundingClientRect();if(r.bottom<innerHeight-6||r.height>innerHeight*0.45||cs.bottom==='auto')return true;
-if(el.dataset.plB===undefined)el.dataset.plB=cs.bottom;done.add(el);apply(el);return true}
+if(el.dataset.plB===undefined){el.dataset.plB=cs.bottom;el.dataset.plS=cs.boxShadow;
+var bg=cs.backgroundColor;if(parseFloat(cs.bottom)===0&&bg&&bg!=='transparent'&&!/rgba\(.*,\s*0\)$/.test(bg))el.dataset.plF=bg}done.add(el);apply(el);return true}
 function scan(){t=0;done.forEach(function(el){if(!el.isConnected)done.delete(el);else apply(el)});if(!inset)return;
 [0.08,0.3,0.5,0.7,0.92].forEach(function(fx){var els=document.elementsFromPoint(innerWidth*fx,innerHeight-3);
 for(var i=0;i<els.length;i++){var e=els[i];while(e&&e!==document.body&&e!==document.documentElement){if(done.has(e)||fix(e))break;e=e.parentElement}}})}
