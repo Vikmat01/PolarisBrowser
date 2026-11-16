@@ -617,7 +617,7 @@ class GlassBar(val act: Activity) : Dialog(act, android.R.style.Theme_Translucen
     var onMiniTap: (() -> Unit)? = null
     private val slop = ViewConfiguration.get(act).scaledTouchSlop
     private var downX = 0f; private var downY = 0f; private var dragging = false
-    private var sliding = false; private var slideX0 = 0f
+    private var sliding = false; private var slideX0 = 0f; private var capsuleTouch = false
     private var forwarding = false
     private val frame = object : FrameLayout(act) {
         override fun dispatchTouchEvent(e: MotionEvent): Boolean {
@@ -643,17 +643,38 @@ class GlassBar(val act: Activity) : Dialog(act, android.R.style.Theme_Translucen
         }
         override fun onInterceptTouchEvent(e: MotionEvent): Boolean {
             when (e.actionMasked) {
-                MotionEvent.ACTION_DOWN -> { downX = e.rawX; downY = e.rawY; dragging = false; sliding = false; slideX0 = content.shapeX }
+                MotionEvent.ACTION_DOWN -> {
+                    downX = e.rawX; downY = e.rawY; dragging = false; sliding = false; slideX0 = content.shapeX
+                    // the mini capsule / circle handles all its own gestures: tap, slide, swipe down
+                    capsuleTouch = mini
+                    if (capsuleTouch) return true
+                }
                 MotionEvent.ACTION_MOVE -> {
                     val dy = e.rawY - downY; val dx = e.rawX - downX
                     if (onSwipeDown != null && dy > slop * 1.5f && dy > abs(dx) * 1.2f) { dragging = true; return true }
-                    if (mini && miniAnim?.isRunning != true && abs(dx) > slop * 1.5f && abs(dx) > abs(dy)) { sliding = true; return true }
                 }
             }
             return false
         }
         @SuppressLint("ClickableViewAccessibility")
         override fun onTouchEvent(e: MotionEvent): Boolean {
+            if (capsuleTouch && !sliding && !dragging) {
+                val dx = e.rawX - downX; val dy = e.rawY - downY
+                when (e.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> return true
+                    MotionEvent.ACTION_MOVE -> {
+                        if (dy > slop && dy > abs(dx) * 1.2f && onSwipeDown != null) dragging = true
+                        else if (abs(dx) > slop && abs(dx) >= abs(dy)) { sliding = true; miniAnim?.cancel() }
+                        else return true
+                    }
+                    MotionEvent.ACTION_UP -> {
+                        capsuleTouch = false
+                        if (abs(dx) < slop && abs(dy) < slop) onMiniTap?.invoke()
+                        return true
+                    }
+                    MotionEvent.ACTION_CANCEL -> { capsuleTouch = false; return true }
+                }
+            }
             if (sliding) {
                 val dx = e.rawX - downX
                 val lim = edgeX()
@@ -663,7 +684,7 @@ class GlassBar(val act: Activity) : Dialog(act, android.R.style.Theme_Translucen
                         content.invalidate(); placeLabel(); kick(300)
                     }
                     MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                        sliding = false
+                        sliding = false; capsuleTouch = false
                         val x = content.shapeX
                         // flick or drop near an edge → dock there; around the middle → centred pill
                         val side = when {
@@ -683,7 +704,7 @@ class GlassBar(val act: Activity) : Dialog(act, android.R.style.Theme_Translucen
             when (e.actionMasked) {
                 MotionEvent.ACTION_MOVE -> { content.translationY = dy * 0.35f; placeLabel() }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    dragging = false
+                    dragging = false; capsuleTouch = false
                     val go = e.actionMasked == MotionEvent.ACTION_UP && dy > act.dp(26)
                     if (go) onSwipeDown?.invoke()
                     postDelayed({
