@@ -840,6 +840,15 @@ class GlassBar(val act: Activity) : Dialog(act, android.R.style.Theme_Translucen
         miniLabel.translationY = (h - sh / 2f) - h / 2f
     }
 
+    /** Screen y of the visible capsule's top edge (full bar or mini pill), null when hidden. */
+    fun coverTop(): Int? {
+        if (hidden || !isShowing || content.height == 0) return null
+        // from the resting position, not the on-screen one (the window may still be sliding in)
+        val sh = minOf(content.shapeH, content.height.toFloat())
+        val screenH = act.window.decorView.height
+        return (screenH - shownY - pad - sh).toInt()
+    }
+
     /** Screen rect of the capsule, or null while the bar is hidden / not laid out. */
     fun capsuleRect(): Rect? {
         if (hidden || mini || !isShowing || content.width == 0) return null

@@ -45,6 +45,18 @@ import java.net.URL
 import java.net.URLEncoder
 import kotlin.concurrent.thread
 
+private const val LIFT_JS = """(function(){if(window.top!==window||window.__plSet)return;var inset=0,done=new Set(),t=0;
+function apply(el){el.style.setProperty('bottom','calc('+el.dataset.plB+' + '+inset+'px)','important')}
+function fix(el){var cs=getComputedStyle(el);if(cs.position!=='fixed'&&cs.position!=='sticky')return false;
+var r=el.getBoundingClientRect();if(r.bottom<innerHeight-6||r.height>innerHeight*0.45||cs.bottom==='auto')return true;
+if(el.dataset.plB===undefined)el.dataset.plB=cs.bottom;done.add(el);apply(el);return true}
+function scan(){t=0;done.forEach(function(el){if(!el.isConnected)done.delete(el);else apply(el)});if(!inset)return;
+[0.08,0.3,0.5,0.7,0.92].forEach(function(fx){var els=document.elementsFromPoint(innerWidth*fx,innerHeight-3);
+for(var i=0;i<els.length;i++){var e=els[i];while(e&&e!==document.body&&e!==document.documentElement){if(done.has(e)||fix(e))break;e=e.parentElement}}})}
+function soon(){if(!t)t=setTimeout(scan,120)}
+window.__plSet=function(px){inset=px;scan()};
+addEventListener('scroll',soon,{passive:true});addEventListener('resize',soon);addEventListener('load',soon);setInterval(soon,1500)})();"""
+
 private const val GPC_JS = "try{Object.defineProperty(Navigator.prototype,'globalPrivacyControl',{get:function(){return true},configurable:true});Object.defineProperty(Navigator.prototype,'doNotTrack',{get:function(){return '1'},configurable:true})}catch(e){}"
 
 /** Ask for the display's fastest mode (120 Hz on most phones); some vendors keep apps at 60 Hz otherwise. */
@@ -372,7 +384,7 @@ class MainActivity : Activity() {
             navBottom = wi.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
             imeBottom = wi.getInsets(WindowInsetsCompat.Type.ime()).bottom
             layoutInsets()
-            if (::glassBar.isInitialized) { glassBar.setHidden(barMode == 2 || imeBottom > 0); updateHandle() }
+            if (::glassBar.isInitialized) { glassBar.setHidden(barMode == 2 || imeBottom > 0); updateHandle(); pushInset(250) }
             ins
         }
         setContentView(root)
@@ -564,6 +576,22 @@ class MainActivity : Activity() {
             2 -> glassBar.setHidden(true)
         }
         updateHandle()
+        pushInset(if (m == 1) 380 else 0)
+    }
+
+    /** Tell the page how much of its bottom edge our panel covers (CSS px). */
+    internal fun pushInset(delayMs: Long) {
+        main.postDelayed({
+            val t = cur ?: return@postDelayed
+            val w = t.web ?: return@postDelayed
+            if (t.isHome || !::glassBar.isInitialized) return@postDelayed
+            val top = if (barMode == 2 || imeBottom > 0) null else glassBar.coverTop()
+            val px = if (top == null) 0 else {
+                val l = IntArray(2); w.getLocationOnScreen(l)
+                ((l[1] + w.height - top + dp(6)).coerceAtLeast(0) / resources.displayMetrics.density).toInt()
+            }
+            w.evaluateJavascript("window.__plSet&&__plSet($px)", null)
+        }, delayMs)
     }
 
     private fun refreshMiniText() {
@@ -864,6 +892,10 @@ class MainActivity : Activity() {
         if (prefs.gpc && WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
             try { WebViewCompat.addDocumentStartJavaScript(w, GPC_JS, setOf("*")) } catch (_: Exception) {}
         }
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+            // lift the site's own bottom-pinned buttons/bars above our floating panel
+            try { WebViewCompat.addDocumentStartJavaScript(w, LIFT_JS, setOf("*")) } catch (_: Exception) {}
+        }
 
         if (prefs.adblock && prefs.cosmetic && AdBlocker.genericCss.isNotEmpty() &&
             WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
@@ -998,7 +1030,7 @@ class MainActivity : Activity() {
         override fun onPageFinished(view: WebView, url: String) {
             t.progress = 100
             if (t.upgrading != null && Uri.parse(url).host?.lowercase() == t.upgrading && url.startsWith("https")) t.upgrading = null
-            if (cur === t) { scheduleSample(80); glassBar.kick(1200); main.postDelayed({ if (cur === t) sampleTop() }, 900) }
+            if (cur === t) { scheduleSample(80); glassBar.kick(1200); main.postDelayed({ if (cur === t) sampleTop() }, 900); pushInset(0) }
             if (url.startsWith(Tab.HOME)) {
                 t.title = ""
                 feedHome(t)
