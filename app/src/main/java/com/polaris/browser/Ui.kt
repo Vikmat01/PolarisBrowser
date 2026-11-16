@@ -686,14 +686,14 @@ class GlassBar(val act: Activity) : Dialog(act, android.R.style.Theme_Translucen
                     MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                         sliding = false; capsuleTouch = false
                         val x = content.shapeX
-                        // flick or drop near an edge → dock there; around the middle → centred pill
-                        val side = when {
-                            dx > act.dp(40) && slideX0 <= 0f && x > -lim * 0.2f -> 1
-                            dx < -act.dp(40) && slideX0 >= 0f && x < lim * 0.2f -> -1
+                        // Three stops: left corner, centre (pill), right corner. Where it's dropped
+                        // decides; a short flick that stays in the same zone moves one stop over.
+                        var side = when {
                             x > lim * 0.45f -> 1
                             x < -lim * 0.45f -> -1
                             else -> 0
                         }
+                        if (side == dock && abs(dx) > act.dp(36)) side = (dock + (if (dx > 0) 1 else -1)).coerceIn(-1, 1)
                         setDock(side)
                     }
                 }
