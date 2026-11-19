@@ -137,7 +137,7 @@ class MainActivity : Activity() {
     private var pendingGeo: Pair<String, GeolocationPermissions.Callback>? = null
     private var blockedUnsaved = 0L
     internal var desktopUa = ""
-    private var mobileUa = ""
+    internal var mobileUa = ""
     internal val readabilityJs by lazy { assets.open("Readability.js").bufferedReader().readText() }
     private val readerableJs by lazy { assets.open("Readability-readerable.js").bufferedReader().readText() }
 
@@ -1315,19 +1315,14 @@ class MainActivity : Activity() {
     internal fun startDownload(t: Tab, url: String, ua: String?, cd: String?, mime: String?) {
         try {
             val name = URLUtil.guessFileName(url, cd, mime)
-            val dm = getSystemService(android.app.DownloadManager::class.java)
-            val req = android.app.DownloadManager.Request(Uri.parse(url)).apply {
-                setTitle(name)
-                setDescription(Uri.parse(url).host)
-                setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, name)
-                Incog.cookie(t.incognito, url)?.let { addRequestHeader("Cookie", it) }
-                addRequestHeader("User-Agent", ua ?: t.web?.settings?.userAgentString ?: mobileUa)
-                if (t.url.startsWith("http")) addRequestHeader("Referer", t.url)
-                if (mime != null) setMimeType(mime)
-            }
-            val id = dm.enqueue(req)
-            if (!t.incognito) db.addDownload(id, name, url, mime ?: "")
+            val h = HashMap<String, String>()
+            Incog.cookie(t.incognito, url)?.let { h["Cookie"] = it }
+            h["User-Agent"] = ua ?: t.web?.settings?.userAgentString ?: mobileUa
+            if (t.url.startsWith("http")) h["Referer"] = t.url
+            if (android.os.Build.VERSION.SDK_INT >= 33 &&
+                checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED)
+                requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 41)
+            Downloader.start(this, if (t.incognito) null else db, url, name, mime ?: "", h)
             toast(this, "Загрузка: $name")
         } catch (e: Exception) {
             toast(this, "Не удалось начать загрузку")

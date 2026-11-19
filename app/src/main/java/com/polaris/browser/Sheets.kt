@@ -355,23 +355,50 @@ fun MainActivity.showLibrary(startTab: Int) {
                 val dm = getSystemService(DownloadManager::class.java)
                 val dls = db.downloads()
                 if (dls.isEmpty()) list.addView(label(this, "Загрузок пока нет", 15f, p.dim).apply { setPadding(dp(10), dp(30), 0, 0) })
+                var live = false
                 dls.forEach { d ->
                     var status = "Неизвестно"
                     var local: Uri? = null
                     var mime = d.mime
-                    try {
+                    var retry: (() -> Unit)? = null
+                    val job = Downloader.jobs[d.id]
+                    if (d.sysId == 0L) {
+                        // our own downloader
+                        if (job != null) {
+                            status = Downloader.status(this, job)
+                            if (job.state == Downloader.DONE) local = job.uri
+                            if (job.state != Downloader.DONE && job.state != Downloader.FAILED) live = true
+                            mime = job.mime
+                        } else when (d.state) {
+                            Downloader.DONE -> { status = "Готово · ${Downloader.fmt(this, d.total)}"; local = Uri.parse(d.uri) }
+                            else -> status = "Прервана · нажмите, чтобы повторить"
+                        }
+                        if (local == null && (job == null || job.state == Downloader.FAILED)) retry = {
+                            try { contentResolver.delete(Uri.parse(d.uri), null, null) } catch (_: Exception) {}
+                            db.deleteDownload(d.id); Downloader.jobs.remove(d.id)
+                            Downloader.start(this, db, d.url, d.name, d.mime, mapOf("User-Agent" to mobileUa))
+                            render()
+                        }
+                    } else try {
                         dm.query(DownloadManager.Query().setFilterById(d.sysId)).use { c ->
                             if (c.moveToFirst()) {
                                 val st = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
                                 val done = c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
                                 val total = c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
-                                val fmt = { b: Long -> android.text.format.Formatter.formatShortFileSize(this, b) }
+                                val fmt = { b: Long -> Downloader.fmt(this, b) }
                                 status = when (st) {
                                     DownloadManager.STATUS_SUCCESSFUL -> { local = dm.getUriForDownloadedFile(d.sysId); "Готово · ${fmt(total)}" }
-                                    DownloadManager.STATUS_RUNNING -> if (total > 0) "Загрузка ${done * 100 / total}% · ${fmt(done)} из ${fmt(total)}" else "Загрузка · ${fmt(done)}"
-                                    DownloadManager.STATUS_PENDING -> "В очереди"
-                                    DownloadManager.STATUS_PAUSED -> "Пауза"
-                                    DownloadManager.STATUS_FAILED -> "Ошибка"
+                                    DownloadManager.STATUS_RUNNING -> { live = true; if (total > 0) "Загрузка ${done * 100 / total}% · ${fmt(done)} из ${fmt(total)}" else "Загрузка · ${fmt(done)}" }
+                                    DownloadManager.STATUS_PENDING, DownloadManager.STATUS_PAUSED, DownloadManager.STATUS_FAILED -> {
+                                        // stuck in the system queue: offer to fetch it with our own downloader
+                                        retry = {
+                                            try { dm.remove(d.sysId) } catch (_: Exception) {}
+                                            db.deleteDownload(d.id)
+                                            Downloader.start(this, db, d.url, d.name, d.mime, mapOf("User-Agent" to mobileUa))
+                                            render()
+                                        }
+                                        "Зависла в системе · нажмите, чтобы скачать заново"
+                                    }
                                     else -> status
                                 }
                                 if (mime.isEmpty()) mime = dm.getMimeTypeForDownloadedFile(d.sysId) ?: ""
@@ -381,14 +408,22 @@ fun MainActivity.showLibrary(startTab: Int) {
                     val isVideo = mime.startsWith("video/") || MainActivity.VIDEO_EXT.matches(d.name)
                     entryRow(if (isVideo) Ic.PLAY else Ic.DOWNLOAD, d.name, status, {
                         val u = local
-                        if (u == null) toast(this, status)
+                        val r = retry
+                        if (u == null) { if (r != null) r() else toast(this, status) }
                         else if (isVideo) PlayerActivity.openLocal(this, u, d.name)
                         else try {
                             startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(u, mime.ifEmpty { "*/*" })
                                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
                         } catch (_: Exception) { toast(this, "Нет приложения для этого файла") }
-                    }, null, { try { dm.remove(d.sysId) } catch (_: Exception) {}; db.deleteDownload(d.id); render() })
+                    }, null, {
+                        if (d.sysId == 0L) {
+                            if (job != null && job.state != Downloader.DONE) Downloader.cancel(d.id) else Downloader.jobs.remove(d.id)
+                        } else try { dm.remove(d.sysId) } catch (_: Exception) {}
+                        db.deleteDownload(d.id); render()
+                    })
                 }
+                // live progress while anything is downloading
+                if (live) list.postDelayed({ if (s.isShowing && tab == 2) render() }, 700)
                 footer.addView(TextView(this).apply {
                     text = "Открыть папку «Загрузки»"; gravity = Gravity.CENTER
                     setTextColor(p.text); setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)

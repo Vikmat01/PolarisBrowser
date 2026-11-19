@@ -6,15 +6,16 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
 data class Entry(val id: Long, val url: String, val title: String, val ts: Long)
-data class Dl(val id: Long, val sysId: Long, val name: String, val url: String, val mime: String, val ts: Long)
+data class Dl(val id: Long, val sysId: Long, val name: String, val url: String, val mime: String, val ts: Long,
+              val state: Int = -1, val total: Long = 0, val uri: String = "")
 
-class Db(ctx: Context) : SQLiteOpenHelper(ctx, "polaris.db", null, 2) {
+class Db(ctx: Context) : SQLiteOpenHelper(ctx, "polaris.db", null, 3) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE bookmarks(id INTEGER PRIMARY KEY AUTOINCREMENT, url TEXT UNIQUE, title TEXT, ts INTEGER)")
         db.execSQL("CREATE TABLE history(id INTEGER PRIMARY KEY AUTOINCREMENT, url TEXT, title TEXT, ts INTEGER)")
         db.execSQL("CREATE INDEX hist_ts ON history(ts)")
-        db.execSQL("CREATE TABLE downloads(id INTEGER PRIMARY KEY AUTOINCREMENT, sys INTEGER, name TEXT, url TEXT, mime TEXT, ts INTEGER)")
+        db.execSQL("CREATE TABLE downloads(id INTEGER PRIMARY KEY AUTOINCREMENT, sys INTEGER, name TEXT, url TEXT, mime TEXT, ts INTEGER, state INTEGER DEFAULT -1, total INTEGER DEFAULT 0, uri TEXT)")
         // Starter speed-dial
         listOf(
             "https://www.youtube.com" to "YouTube",
@@ -27,6 +28,11 @@ class Db(ctx: Context) : SQLiteOpenHelper(ctx, "polaris.db", null, 2) {
 
     override fun onUpgrade(db: SQLiteDatabase, o: Int, n: Int) {
         if (o < 2) db.execSQL("DELETE FROM bookmarks WHERE url LIKE '%ya.ru%' OR url LIKE '%yandex.%'")
+        if (o < 3) {
+            db.execSQL("ALTER TABLE downloads ADD COLUMN state INTEGER DEFAULT -1")
+            db.execSQL("ALTER TABLE downloads ADD COLUMN total INTEGER DEFAULT 0")
+            db.execSQL("ALTER TABLE downloads ADD COLUMN uri TEXT")
+        }
     }
 
     fun bookmarks(): List<Entry> = readableDatabase.rawQuery("SELECT id,url,title,ts FROM bookmarks ORDER BY ts", null).use { c ->
@@ -99,14 +105,21 @@ class Db(ctx: Context) : SQLiteOpenHelper(ctx, "polaris.db", null, 2) {
     fun deleteHistory(id: Long) { writableDatabase.delete("history", "id=?", arrayOf(id.toString())) }
     fun clearHistory() { writableDatabase.delete("history", null, null) }
 
-    fun addDownload(sys: Long, name: String, url: String, mime: String) {
+    fun addDownload(sys: Long, name: String, url: String, mime: String): Long =
         writableDatabase.insert("downloads", null, ContentValues().apply {
             put("sys", sys); put("name", name); put("url", url); put("mime", mime); put("ts", System.currentTimeMillis())
+            if (sys == 0L) put("state", 0)
         })
+
+    fun finishDownload(id: Long, name: String, mime: String, total: Long, uri: String, state: Int) {
+        writableDatabase.update("downloads", ContentValues().apply {
+            put("name", name); put("mime", mime); put("total", total); put("uri", uri); put("state", state)
+        }, "id=?", arrayOf(id.toString()))
     }
 
-    fun downloads(): List<Dl> = readableDatabase.rawQuery("SELECT id,sys,name,url,mime,ts FROM downloads ORDER BY ts DESC LIMIT 200", null).use { c ->
-        buildList { while (c.moveToNext()) add(Dl(c.getLong(0), c.getLong(1), c.getString(2), c.getString(3), c.getString(4) ?: "", c.getLong(5))) }
+    fun downloads(): List<Dl> = readableDatabase.rawQuery("SELECT id,sys,name,url,mime,ts,state,total,uri FROM downloads ORDER BY ts DESC LIMIT 200", null).use { c ->
+        buildList { while (c.moveToNext()) add(Dl(c.getLong(0), c.getLong(1), c.getString(2), c.getString(3), c.getString(4) ?: "", c.getLong(5),
+            if (c.isNull(6)) -1 else c.getInt(6), c.getLong(7), c.getString(8) ?: "")) }
     }
 
     fun deleteDownload(id: Long) { writableDatabase.delete("downloads", "id=?", arrayOf(id.toString())) }
